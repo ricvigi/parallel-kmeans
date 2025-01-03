@@ -41,16 +41,16 @@ help:
 all: $(OBJS)
 
 KMEANS_seq: KMEANS.c
-	$(CC) $(FLAGS) $(DEBUG) $< $(LIBS) -o $@
+	$(CC) $(FLAGS) $(DEBUG) $(OMPFLAG) $< $(LIBS) -o $@
 
 KMEANS_omp: KMEANS_omp.c
 	$(CC) $(FLAGS) $(DEBUG) $(OMPFLAG) $< $(LIBS) -o $@
 
 KMEANS_mpi: KMEANS_mpi.c
-	$(MPICC) $(FLAGS) $(DEBUG) $< $(LIBS) -o $@
+	$(MPICC) $(FLAGS) $(DEBUG) $(OMPFLAG) $< $(LIBS) -o $@
 
 KMEANS_cuda: KMEANS_cuda.cu
-	$(CUDACC) $(DEBUG) $< $(LIBS) -o $@
+	$(CUDACC) $(DEBUG) $< $(LIBS) -Xcompiler $(OMPFLAG) -o $@
 
 
 # Remove the target files

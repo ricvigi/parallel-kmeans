@@ -53,6 +53,7 @@ void showFileError(int error, char* filename)
 
 /* 
 Function readInput: It reads the file to determine the number of rows and columns.
+Returns lines=number of points, samples=dimensionality of a point
 */
 int readInput(char* filename, int *lines, int *samples)
 {
@@ -165,11 +166,13 @@ void initCentroids(const float *data, float* centroids, int* centroidPos, int sa
 
 /*
 Function euclideanDistance: Euclidean distance
-This function could be modified
+NOTE:This function could be modified
 */
 float euclideanDistance(float *point, float *center, int samples)
 {
 	float dist=0.0;
+	/* computes euclidean distance for ONE point of dimensionality = samples.
+	 * dist=sqrt((point-center)^2) */
 	for(int i=0; i<samples; i++) 
 	{
 		dist+= (point[i]-center[i])*(point[i]-center[i]);
@@ -180,7 +183,7 @@ float euclideanDistance(float *point, float *center, int samples)
 
 /*
 Function zeroFloatMatriz: Set matrix elements to 0
-This function could be modified
+NOTE:This function could be modified
 */
 void zeroFloatMatriz(float *matrix, int rows, int columns)
 {
@@ -192,7 +195,7 @@ void zeroFloatMatriz(float *matrix, int rows, int columns)
 
 /*
 Function zeroIntArray: Set array elements to 0
-This function could be modified
+NOTE:This function could be modified
 */
 void zeroIntArray(int *array, int size)
 {
@@ -243,7 +246,7 @@ int main(int argc, char* argv[])
 		showFileError(error,argv[1]);
 		exit(error);
 	}
-	
+	printf("number of samples: %d, dimensionality: %d\n", lines, samples);
 	float *data = (float*)calloc(lines*samples,sizeof(float));
 	if (data == NULL)
 	{
@@ -311,6 +314,7 @@ int main(int argc, char* argv[])
 	//pointPerClass: number of points classified in each class
 	//auxCentroids: mean of the points in each class
 	int *pointsPerClass = (int *)malloc(K*sizeof(int));
+	/* The mean of a point in n dimensions is itself of dimensionality n! */
 	float *auxCentroids = (float*)malloc(K*samples*sizeof(float));
 	float *distCentroids = (float*)malloc(K*sizeof(float)); 
 	if (pointsPerClass == NULL || auxCentroids == NULL || distCentroids == NULL)
@@ -337,18 +341,25 @@ int main(int argc, char* argv[])
 			minDist=FLT_MAX;
 			for(j=0; j<K; j++)
 			{
+				/* each point is stored as the k_th multiple of samples */
 				dist=euclideanDistance(&data[i*samples], &centroids[j*samples], samples);
 
+				/* if the distance of point i is smaller than minDist,
+				 * set minDist equal to the distance, and set the
+				 * current class for point i to j + 1 */
 				if(dist < minDist)
 				{
 					minDist=dist;
 					class=j+1;
 				}
 			}
+			/* if point i changed class, increment changes */
 			if(classMap[i]!=class)
 			{
 				changes++;
 			}
+			/* update class for point i (NOTE:it does this even if the class is not
+			 * changed) */
 			classMap[i]=class;
 		}
 
@@ -358,6 +369,8 @@ int main(int argc, char* argv[])
 
 		for(i=0; i<lines; i++) 
 		{
+			/* first step of calculating the mean for each class. Add the value of data
+		     * points belonging to that class */
 			class=classMap[i];
 			pointsPerClass[class-1] = pointsPerClass[class-1] +1;
 			for(j=0; j<samples; j++){
@@ -367,14 +380,17 @@ int main(int argc, char* argv[])
 
 		for(i=0; i<K; i++) 
 		{
+			/* second step of calculating the mean for each class. Divide by the number
+		     * of elements of each class */
 			for(j=0; j<samples; j++){
 				auxCentroids[i*samples+j] /= pointsPerClass[i];
 			}
 		}
 		
+		/* here we check if maxDist will eventually be bigger than maxThreshold */
 		maxDist=FLT_MIN;
 		for(i=0; i<K; i++){
-			distCentroids[i]=euclideanDistance(&centroids[i*samples], &auxCentroids[i*samples], samples);
+			distCentroids[i] = euclideanDistance(&centroids[i*samples], &auxCentroids[i*samples], samples);
 			if(distCentroids[i]>maxDist) {
 				maxDist=distCentroids[i];
 			}

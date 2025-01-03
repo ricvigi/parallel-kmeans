@@ -1,0 +1,5 @@
+KMEANS_seq
+cKMEANS_omp
+KMEANS_mpi
+KMEANS_cuda
+test*.out

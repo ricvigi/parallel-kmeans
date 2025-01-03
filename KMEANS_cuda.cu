@@ -272,9 +272,10 @@ int main(int argc, char* argv[])
 															K);
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
-		/* Copy back maxDist_d and auxCentroids_d in host memory */
+		/* Copy back maxDist_d, auxCentroids_d and classMap_d in host memory */
 		CHECK_CUDA_CALL( cudaMemcpy(&maxDist, maxDist_d, sizeof(float), cudaMemcpyDeviceToHost) );
 		CHECK_CUDA_CALL( cudaMemcpy(centroids, auxCentroids_d, csize, cudaMemcpyDeviceToHost) );
+		CHECK_CUDA_CALL( cudaMemcpy(classMap, classMap_d, cmapsize, cudaMemcpyDeviceToHost) );
 		/* Save the number of changes for this iteration in host memory */
 		CHECK_CUDA_CALL( cudaMemcpy(&changes, changes_d, sizeof(int), cudaMemcpyDeviceToHost) );
 
@@ -379,7 +380,7 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 
 	/* Shared memory allocation. NOTE: It's much quicker (and better) if K*samples < 64. This should always
 	 * be possible, except in the case where we use 100 dim points */
-	if ((K * samples) > 64)
+	if ((K * samples) > BLOCK_DIMX)
 	{
 		centers[blockId] = center[blockId];
 		if (blockId == 0)
@@ -391,7 +392,10 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 		}
 	} else
 	{
-		centers[blockId] = center[blockId];
+		if (blockId < (K*samples))
+		{
+			centers[blockId] = center[blockId];
+		}
 	}
 	/* Now all the centroids are stored in shared memory */
 
@@ -469,9 +473,12 @@ void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */  /* new centroi
 
 	/* Copy pointsPerClass into shared memory */
 	/* ATTENTION: It's better/quicker (for this kernel) to use at most 64 centroids */
-	if (K <= 64)
+	if (K <= BLOCK_DIMX)
 	{
-		sharedPointsPerClass[blockId] = pointsPerClass[blockId];
+		if (blockId < K)
+		{
+			sharedPointsPerClass[blockId] = pointsPerClass[blockId];
+		}
 	} else
 	{
 		sharedPointsPerClass[blockId] = pointsPerClass[blockId];

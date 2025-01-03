@@ -19,7 +19,7 @@ FLAGS=-O3 -Wall
 LIBS=-lm
 
 # Targets to build
-OBJS=KMEANS_seq KMEANS_omp KMEANS_mpi KMEANS_cuda
+OBJS=KMEANS_seq KMEANS_omp KMEANS_mpi KMEANS_cuda KMEANS_cudav2
 
 # Rules. By default show help
 help:
@@ -50,6 +50,8 @@ KMEANS_mpi: KMEANS_mpi.c
 	$(MPICC) $(FLAGS) $(DEBUG) $(OMPFLAG) $< $(LIBS) -o $@
 
 KMEANS_cuda: KMEANS_cuda.cu
+	$(CUDACC) $(DEBUG) $< $(LIBS) -Xcompiler $(OMPFLAG) -o $@
+KMEANS_cudav2: KMEANS_cudav2.cu
 	$(CUDACC) $(DEBUG) $< $(LIBS) -Xcompiler $(OMPFLAG) -o $@
 
 

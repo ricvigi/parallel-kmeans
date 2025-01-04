@@ -213,12 +213,8 @@ int main(int argc, char* argv[])
 	/* pointsPerClass_d, auxCentroids_d, changes_d, maxDist_d are initialized in the loop with cudaMemset */
 	CHECK_CUDA_CALL( cudaMalloc((void**)&pointsPerClass_d, ppcsize) );
 	CHECK_CUDA_CALL( cudaMalloc((void**)&auxCentroids_d, csize) );
-	// CHECK_CUDA_CALL( cudaMemset(pointsPerClass_d, 0, ppcsize) );
-	// CHECK_CUDA_CALL( cudaMemset(auxCentroids_d, 0.0, csize) );
 	CHECK_CUDA_CALL( cudaMalloc((void**)&changes_d, sizeof(int)) );
-	// CHECK_CUDA_CALL( cudaMemset(changes_d, 0, sizeof(int)) );
 	CHECK_CUDA_CALL( cudaMalloc((void**)&maxDist_d, sizeof(float)) );
-	// CHECK_CUDA_CALL( cudaMemset(maxDist_d, FLT_MIN, sizeof(float)) );
 	/* Constant memory allocation */
     CHECK_CUDA_CALL( cudaMemcpyToSymbol(samples_d, &samples, sizeof(int)) );
     CHECK_CUDA_CALL( cudaMemcpyToSymbol(K_d, &K, sizeof(int)) );
@@ -276,8 +272,6 @@ int main(int argc, char* argv[])
 												   changes_d);
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
-		/* Zero out pointsPerClass_d and auxCentroids_d for this iteration */
-
 		/* Second kernel */
 		recalculateCentroidsStep1GPU<<<dimGrid, dimBlock>>>(points_d,
 															classMap_d,
@@ -320,8 +314,6 @@ int main(int argc, char* argv[])
 	// Output and termination conditions
 	printf("%s",outputMsg);
 
-
-
 	//END CLOCK*****************************************
 	end = omp_get_wtime();
 	printf("\nComputation: %f seconds", end - start);
@@ -334,13 +326,16 @@ int main(int argc, char* argv[])
 	CHECK_CUDA_CALL( cudaMemcpy(classMap, classMap_d, cmapsize, cudaMemcpyDeviceToHost) );
 	CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
-	if (changes <= minChanges) {
+	if (changes <= minChanges)
+	{
 		printf("\n\nTermination condition:\nMinimum number of changes reached: %d [%d]", changes, minChanges);
 	}
-	else if (it >= maxIterations) {
+	else if (it >= maxIterations)
+	{
 		printf("\n\nTermination condition:\nMaximum number of iterations reached: %d [%d]", it, maxIterations);
 	}
-	else {
+	else
+	{
 		printf("\n\nTermination condition:\nCentroid update precision reached: %g [%g]", maxDist, maxThreshold);
 	}
 
@@ -396,8 +391,6 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 	/* id of a thread inside a block */
 	int blockId = threadIdx.x;
 
-	/* ATTENTION: Think wisely about the size of these shared memory arrays. REMEMBER that
-	 * we can store at max 16384 floats in shared memory in a 7.5 CC GPU */
 	extern __shared__ float centers[];
 	float minDist = FLT_MAX;
 	int _class = 1;
@@ -442,7 +435,6 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 			atomicAdd(changes, 1);
 		}
 		classMap[id] = _class;
-		// atomicAdd(changes, local_changes);
 	}
 }
 
@@ -465,12 +457,10 @@ void recalculateCentroidsStep1GPU(float* points,	   /* in */	 /* array of points
 	if (id < lines_d)
 	{
 		_class = classMap[id];
-		/* Add the values computed locally within each block to the global array. This will be needed
-		 * in step 2 */
 		atomicAdd(&pointsPerClass[_class - 1], 1);
 		for (int j = 0; j < samples_d; j++)
 		{
-			/* ATTENTION: There should NOT be an issue with floating point rounding here, since
+			/* NOTE: There should NOT be an issue with floating point rounding here, since
 			 * there shouldn't be values that are too small. Check this. */
 			atomicAdd(&auxCentroids[(_class - 1)*samples_d + j], points[id*samples_d+j]);
 		}

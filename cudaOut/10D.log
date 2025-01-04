@@ -1,0 +1,39 @@
+
+	Data file: test_files/input10D.inp 
+	Points: 1000
+	Dimensions: 10
+	Number of clusters: 15
+	Maximum number of iterations: 5000
+	Minimum number of changes: 10 [1% of 1000 points]
+	Maximum centroid precision: 0.000100
+
+Memory allocation: 0.104199 seconds
+Max shared memory: 49152
+Max threads per block: 1024
+Max threads per SM: 1024
+Concurrent Kernels: true
+32 bit registers per SM: 65536
+Shared memory per SM: 65536
+csize: 600
+
+[1] Cluster changes: 1000	Max. centroid distance: 929.825867
+[2] Cluster changes: 232	Max. centroid distance: 204.602219
+[3] Cluster changes: 110	Max. centroid distance: 135.975189
+[4] Cluster changes: 72	Max. centroid distance: 103.979652
+[5] Cluster changes: 56	Max. centroid distance: 119.102814
+[6] Cluster changes: 45	Max. centroid distance: 83.819435
+[7] Cluster changes: 33	Max. centroid distance: 76.386444
+[8] Cluster changes: 37	Max. centroid distance: 75.156250
+[9] Cluster changes: 35	Max. centroid distance: 64.334549
+[10] Cluster changes: 32	Max. centroid distance: 70.502289
+[11] Cluster changes: 24	Max. centroid distance: 33.556263
+[12] Cluster changes: 25	Max. centroid distance: 43.714603
+[13] Cluster changes: 20	Max. centroid distance: 59.605400
+[14] Cluster changes: 17	Max. centroid distance: 39.856659
+[15] Cluster changes: 6	Max. centroid distance: 28.425785
+Computation: 0.001199 seconds
+
+Termination condition:
+Minimum number of changes reached: 6 [10]
+
+Memory deallocation: 0.001252 seconds

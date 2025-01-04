@@ -67,7 +67,7 @@ __global__ void firstStepGPU(float* point, float* center,
 							 int* classMap, int* changes);
 __global__ void recalculateCentroidsStep1GPU(float* point, int* classMap,
 											 int* pointsPerClass, float* auxCentroids);
-__global__ void recalculateCentroidsStep2GPU(float* auxCentroids, int* pointsPerClass);
+__global__ void recalculateCentroidsStep2GPU(float* auxCentroids, int* pointsPerClass, float* centroids, float* maxDist);
 __global__ void recalculateCentroidsStep3GPU(float* maxDist, float* centroids, float* auxCentroids);
 
 /* GPU constant memory variables */
@@ -266,7 +266,9 @@ int main(int argc, char* argv[])
 	{
 		it++;
 		CHECK_CUDA_CALL( cudaMemset(changes_d, 0, sizeof(int)) );
-
+		CHECK_CUDA_CALL( cudaMemset(maxDist_d, FLT_MIN, sizeof(float)) );
+		CHECK_CUDA_CALL( cudaMemset(pointsPerClass_d, 0, ppcsize) );
+		CHECK_CUDA_CALL( cudaMemset(auxCentroids_d, 0.0, csize) );
 		/* First kernel */
 		firstStepGPU<<<dimGrid, dimBlock, csize>>>(points_d,
 												   centroids_d,
@@ -275,21 +277,24 @@ int main(int argc, char* argv[])
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
 		/* Zero out pointsPerClass_d and auxCentroids_d for this iteration */
-		CHECK_CUDA_CALL( cudaMemset(pointsPerClass_d, 0, ppcsize) );
-		CHECK_CUDA_CALL( cudaMemset(auxCentroids_d, 0.0, csize) );
+
 		/* Second kernel */
 		recalculateCentroidsStep1GPU<<<dimGrid, dimBlock>>>(points_d,
 															classMap_d,
 															pointsPerClass_d,
 															auxCentroids_d);
+
+
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
 		/* Third kernel */
 		recalculateCentroidsStep2GPU<<<dimGrid, dimBlock, csize>>>(auxCentroids_d,
-																   pointsPerClass_d);
+																   pointsPerClass_d,
+																   centroids_d,
+																   maxDist_d);
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
-		CHECK_CUDA_CALL( cudaMemset(maxDist_d, FLT_MIN, sizeof(float)) );
+
 		/* Fourth kernel */
 		recalculateCentroidsStep3GPU<<<dimGrid, dimBlock>>>(maxDist_d,
 															centroids_d,
@@ -475,8 +480,10 @@ void recalculateCentroidsStep1GPU(float* points,	   /* in */	 /* array of points
 /* This kernel divides the sum of the values of all the points belonging to class k by the number
  * of points belonging to class k. */
 __global__
-void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */  /* new centroids are computed here */
-								  int* pointsPerClass) /* in */   /* num of points for each class k */
+void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */     /* new centroids are computed here */
+								  int* pointsPerClass, /* in */      /* num of points for each class k */
+								  float* centroids,    /* in */      /* old centroids */
+								  float* maxDist)      /* in/out */  /* maxDistance between old and new centroids */
 {
 	/* Global thread id */
 	int id = threadIdx.x

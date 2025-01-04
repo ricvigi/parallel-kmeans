@@ -1,0 +1,33 @@
+number of samples: 1000, dimensionality: 10
+
+	Data file: test_files/input10D.inp 
+	Points: 1000
+	Dimensions: 10
+	Number of clusters: 15
+	Maximum number of iterations: 5000
+	Minimum number of changes: 10 [1% of 1000 points]
+	Maximum centroid precision: 0.000100
+
+Memory allocation: 0.000866 seconds
+
+[1] Cluster changes: 1000	Max. centroid distance: 975.538513
+[2] Cluster changes: 232	Max. centroid distance: 324.309998
+[3] Cluster changes: 110	Max. centroid distance: 166.269424
+[4] Cluster changes: 72	Max. centroid distance: 162.583511
+[5] Cluster changes: 56	Max. centroid distance: 119.102814
+[6] Cluster changes: 45	Max. centroid distance: 108.900993
+[7] Cluster changes: 33	Max. centroid distance: 118.648888
+[8] Cluster changes: 37	Max. centroid distance: 142.234024
+[9] Cluster changes: 35	Max. centroid distance: 117.383202
+[10] Cluster changes: 32	Max. centroid distance: 120.893791
+[11] Cluster changes: 24	Max. centroid distance: 78.932167
+[12] Cluster changes: 25	Max. centroid distance: 100.422424
+[13] Cluster changes: 20	Max. centroid distance: 99.222931
+[14] Cluster changes: 17	Max. centroid distance: 72.066650
+[15] Cluster changes: 6	Max. centroid distance: 42.542908
+Computation: 0.001914 seconds
+
+Termination condition:
+Minimum number of changes reached: 6 [10]
+
+Memory deallocation: 0.000170 seconds

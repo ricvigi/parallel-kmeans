@@ -259,10 +259,12 @@ int main(int argc, char* argv[])
 	do
 	{
 		it++; // Iteration counter
-		/* - changes_d: Total number of points that change centroid in this iteration.
-		 * - maxDist_d: Will contain the maximum distance between the old and the new centroids. If it's smaller than 			*			 maxThreshold, the algorithm terminates
-		 * - pointsPerClass_d: Stores at each iteration the number of points that belong to centroid k
-		 * - auxCentroids_d: This array will store the new centroids at each iteration
+		/*
+		 *  changes_d: 		  Total number of points that change centroid in this iteration.
+		 *  maxDist_d: 		  Will contain the maximum distance between the old and the new centroids.
+		 * 					  If it's smaller than maxThreshold, the algorithm terminates
+		 *  pointsPerClass_d: Stores at each iteration the number of points that belong to centroid k
+		 *  auxCentroids_d:   This array will store the new centroids at each iteration
 		 */
 		CHECK_CUDA_CALL( cudaMemset(changes_d, 0, sizeof(int)) );
 		CHECK_CUDA_CALL( cudaMemset(maxDist_d, FLT_MIN, sizeof(float)) );

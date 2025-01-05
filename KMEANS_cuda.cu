@@ -198,7 +198,7 @@ int main(int argc, char* argv[])
 	int cmapsize = lines*sizeof(int);
 	int ppcsize = K*sizeof(int);
 	const int gridsize = (int) ceil((float)lines/BLOCK_DIMX);
-	float* points_d, *centroids_d, *auxCentroids_d, *distCentroids_d, *maxDist_d;
+	float* points_d, *centroids_d, *auxCentroids_d, *maxDist_d;
 	int* changes_d, *classMap_d, *pointsPerClass_d;
 
 	/* Device memory allocation */
@@ -208,8 +208,6 @@ int main(int argc, char* argv[])
 	CHECK_CUDA_CALL( cudaMemcpy(centroids_d, centroids, csize, cudaMemcpyHostToDevice) );
 	CHECK_CUDA_CALL( cudaMalloc((void**)&classMap_d, cmapsize) );
 	CHECK_CUDA_CALL( cudaMemset(classMap_d, 0, cmapsize) );
-	CHECK_CUDA_CALL( cudaMalloc((void**)&distCentroids_d, ppcsize) );
-	CHECK_CUDA_CALL( cudaMemset(distCentroids_d, 0.0, ppcsize) );
 	/* pointsPerClass_d, auxCentroids_d, changes_d, maxDist_d are initialized in the loop with cudaMemset */
 	CHECK_CUDA_CALL( cudaMalloc((void**)&pointsPerClass_d, ppcsize) );
 	CHECK_CUDA_CALL( cudaMalloc((void**)&auxCentroids_d, csize) );
@@ -255,16 +253,22 @@ int main(int argc, char* argv[])
  *
  */
 
-	/* ATTENTION: for now, dimBlock must be <= to K*samples */
+	/* We are using a 1 dimensional block and grid size, to maximize occupancy */
 	dim3 dimBlock(BLOCK_DIMX);
 	dim3 dimGrid(gridsize);
 	do
 	{
-		it++;
+		it++; // Iteration counter
+		/* - changes_d: Total number of points that change centroid in this iteration.
+		 * - maxDist_d: Will contain the maximum distance between the old and the new centroids. If it's smaller than 			*			 maxThreshold, the algorithm terminates
+		 * - pointsPerClass_d: Stores at each iteration the number of points that belong to centroid k
+		 * - auxCentroids_d: This array will store the new centroids at each iteration
+		 */
 		CHECK_CUDA_CALL( cudaMemset(changes_d, 0, sizeof(int)) );
 		CHECK_CUDA_CALL( cudaMemset(maxDist_d, FLT_MIN, sizeof(float)) );
 		CHECK_CUDA_CALL( cudaMemset(pointsPerClass_d, 0, ppcsize) );
 		CHECK_CUDA_CALL( cudaMemset(auxCentroids_d, 0.0, csize) );
+
 		/* First kernel */
 		firstStepGPU<<<dimGrid, dimBlock, csize>>>(points_d,
 												   centroids_d,
@@ -277,8 +281,6 @@ int main(int argc, char* argv[])
 															classMap_d,
 															pointsPerClass_d,
 															auxCentroids_d);
-
-
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
 		/* Third kernel */
@@ -290,9 +292,7 @@ int main(int argc, char* argv[])
 
 
 		/* Fourth kernel */
-		recalculateCentroidsStep3GPU<<<dimGrid, dimBlock>>>(maxDist_d,
-															centroids_d,
-															auxCentroids_d);
+		recalculateCentroidsStep3GPU<<<dimGrid, dimBlock>>>(maxDist_d, centroids_d, auxCentroids_d);
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
 		/* Copy back maxDist_d, auxCentroids_d and classMap_d in host memory */
@@ -358,7 +358,6 @@ int main(int argc, char* argv[])
 	CHECK_CUDA_CALL( cudaFree(points_d) );
 	CHECK_CUDA_CALL( cudaFree(centroids_d) );
 	CHECK_CUDA_CALL( cudaFree(auxCentroids_d) );
-	CHECK_CUDA_CALL( cudaFree(distCentroids_d) );
 	CHECK_CUDA_CALL( cudaFree(maxDist_d) );
 	CHECK_CUDA_CALL( cudaFree(changes_d) );
 	CHECK_CUDA_CALL( cudaFree(classMap_d) );
@@ -373,10 +372,11 @@ int main(int argc, char* argv[])
 
 
 
-/* This kernel implements the first part of the kmeans algorithm logic. It computes the distance of
+/*
+ * This kernel implements the first part of the kmeans algorithm logic. It computes the distance of
  * each point from all of the centroids, and saves in classMap[p] the closest centroid to point p.
- * It does so by assigning a thread to each point, and iterating over each centroid. NOTE: Can this
- * be optimized further? */
+ * It does so by assigning a thread to each point, and iterating over each centroid.
+ */
 __global__
 void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 				  float* center  /* in */,     /* Centroids array */
@@ -397,7 +397,7 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 	float res;
 
 	/* Shared memory allocation. NOTE: It's much quicker (and better) if K*samples < 64. This should always
-	 * be possible, except in the case where we use 100 dim points */
+	 * be possible, except in the case where we use 100 dim points. */
 	if ((K_d * samples_d) > BLOCK_DIMX)
 	{
 		centers[blockId] = center[blockId];
@@ -432,15 +432,19 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 		}
 		if (classMap[id] != _class)
 		{
+			/* variable changes must be incremented atomically */
 			atomicAdd(changes, 1);
 		}
+		/* NOTE: it's important to update this every time, otherwise we might run into nasty bugs */
 		classMap[id] = _class;
 	}
 }
 
-/* This kernel computes the values needed for the calculation of the new centroids. After the
- * execution, auxCentroids will have stored the sum of all points that belong to each class, and
- * pointPerClass will contain the count of all points belonging to each class */
+/*
+ * This kernel computes the values needed for the calculation of the new centroids. After the
+ * execution, auxCentroids will have stored the (not normalized) sum of all points that belong
+ * to each class, and pointPerClass will contain the count of all points belonging to each class.
+ */
 __global__
 void recalculateCentroidsStep1GPU(float* points,	   /* in */	 /* array of points */
 								  int* classMap, 	   /* in */	 /* point i belongs to class k */
@@ -457,18 +461,24 @@ void recalculateCentroidsStep1GPU(float* points,	   /* in */	 /* array of points
 	if (id < lines_d)
 	{
 		_class = classMap[id];
+
+		/* pointsPerClass has to be incremented atomically to avoid race condition over different threads
+		 * belonging to the same class */
 		atomicAdd(&pointsPerClass[_class - 1], 1);
+
 		for (int j = 0; j < samples_d; j++)
 		{
 			/* NOTE: There should NOT be an issue with floating point rounding here, since
-			 * there shouldn't be values that are too small. Check this. */
+			 * there shouldn't be values that are too small. */
 			atomicAdd(&auxCentroids[(_class - 1)*samples_d + j], points[id*samples_d+j]);
 		}
 	}
 }
 
-/* This kernel divides the sum of the values of all the points belonging to class k by the number
- * of points belonging to class k. */
+/*
+ * This kernel divides the sum of the values of all the points belonging to class k by the number
+ * of points belonging to class k.
+ */
 __global__
 void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */     /* new centroids are computed here */
 								  int* pointsPerClass, /* in */      /* num of points for each class k */
@@ -486,7 +496,8 @@ void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */     /* new cent
 	extern __shared__ int sharedPointsPerClass[];
 
 	/* Copy pointsPerClass into shared memory */
-	/* ATTENTION: It's better/quicker (for this kernel) to use at most 64 centroids */
+	/* ATTENTION: It's better/quicker (for this kernel) to use at most 64 centroids, although it would be
+	 * even better to always have K_d*samples_d <= 64 */
 	if (K_d <= BLOCK_DIMX)
 	{
 		if (blockId < K_d)
@@ -506,6 +517,7 @@ void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */     /* new cent
 	}
 	__syncthreads(); /* !!!!!!! ATTENTION: Do NOT remove this barrier !!!!!!! */
 
+	/* ATTENTION: This part could be made quicker... */
 	if (id < K_d)
 	{
 		_class = sharedPointsPerClass[id];
@@ -517,8 +529,10 @@ void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */     /* new cent
 }
 
 
-/* This kernel checks whether the distance between the old centroids and the new ones is small
- * enough for us to end the algorithm */
+/*
+ * This kernel checks whether the distance between the old centroids and the new ones is small
+ * enough for us to end the algorithm
+ */
 __global__
 void recalculateCentroidsStep3GPU(float* maxDist, 		/* out */  /* precision in centroid distance */
 								  float* centroids,		/* in */   /* old centroids array */
@@ -534,8 +548,8 @@ void recalculateCentroidsStep3GPU(float* maxDist, 		/* out */  /* precision in c
 	/* ATTENTION: We can speed this up. */
 	if (id < K_d)
 	{
-		dist = euclideanDistanceGPU(&centroids[id*samples_d],
-									&auxCentroids[id*samples_d]);
+		dist = euclideanDistanceGPU(&centroids[id*samples_d], &auxCentroids[id*samples_d]);
+
 		/* BUG: Race condition here in the update of maxDist... how to fix this? */
 		if (dist > *maxDist)
 		{

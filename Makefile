@@ -19,7 +19,7 @@ FLAGS=-O3 -Wall
 LIBS=-lm
 
 # Targets to build
-OBJS=KMEANS_seq KMEANS_omp KMEANS_mpi KMEANS_cuda KMEANS_cudav2
+OBJS=KMEANS_seq KMEANS_omp KMEANS_mpi KMEANS_cuda KMEANS_cudav2 KMEANS_mpiomp
 
 # Rules. By default show help
 help:
@@ -29,7 +29,7 @@ help:
 	@echo "Group Trasgo, Universidad de Valladolid (Spain)"
 	@echo
 	@echo "make KMEANS_seq	Build only the sequential version"
-	@echo "make cKMEANS_omp	Build only the OpenMP version"
+	@echo "make KMEANS_omp	Build only the OpenMP version"
 	@echo "make KMEANS_mpi	Build only the MPI version"
 	@echo "make KMEANS_cuda	Build only the CUDA version"
 	@echo
@@ -51,8 +51,12 @@ KMEANS_mpi: KMEANS_mpi.c
 
 KMEANS_cuda: KMEANS_cuda.cu
 	$(CUDACC) $(DEBUG) $< $(LIBS) -Xcompiler $(OMPFLAG) -o $@
+
 KMEANS_cudav2: KMEANS_cudav2.cu
 	$(CUDACC) $(DEBUG) $< $(LIBS) -Xcompiler $(OMPFLAG) -o $@
+
+KMEANS_mpiomp: KMEANS_mpiomp.c
+	$(MPICC) $(FLAGS) $(DEBUG) $(OMPFLAG) $< $(LIBS) -o $@
 
 
 # Remove the target files

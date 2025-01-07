@@ -40,6 +40,8 @@ int readInput2(char* filename, float* data);
 int writeResult(int *classMap, int lines, const char* filename);
 float euclideanDistance(float *point, float *center, int samples);
 void initCentroids(const float *data, float* centroids, int* centroidPos, int samples, int K);
+void zeroFloatMatriz(float *matrix, int rows, int columns);
+void zeroIntArray(int *array, int size);
 
 int main(int argc, char* argv[])
 {
@@ -176,6 +178,9 @@ int main(int argc, char* argv[])
 	float local_centroids[K*samples];
 	int* local_classMap = (int*)calloc(local_sz,sizeof(int));
 
+
+	// float* local_auxCentroids = (float*)calloc(K*samples, sizeof(float));
+
 	/* Scatter data array and broadcast centroids array. ATTENTION: We might not need to broadcast centroids now */
 	if (rank == 0)
 	{
@@ -206,7 +211,6 @@ int main(int argc, char* argv[])
 	do
 	{
 		it++;
-		maxDist = FLT_MIN;
 		changes = 0;
 		for (i = 0; i < local_sz; i++)
 		{
@@ -219,7 +223,7 @@ int main(int argc, char* argv[])
 				if(dist < minDist)
 				{
 					minDist=dist;
-					_class=j+1;
+					_class=k+1;
 				}
 			}
 			if(local_classMap[i]!=_class)
@@ -229,7 +233,52 @@ int main(int argc, char* argv[])
 			local_classMap[i]=_class;
 		}
 
-		break;
+		zeroIntArray(pointsPerClass,K);
+		zeroFloatMatriz(auxCentroids,K,samples);
+
+		for(i = 0; i < local_sz; i++)
+		{
+			/* first step of calculating the mean for each class. Add the value of data
+		     * points belonging to that class */
+			/* ATTENTION: All reduce on local_auxCentroids and pointsPerClass?? most likely YES */
+			_class = local_classMap[i];
+			pointsPerClass[_class-1] = pointsPerClass[_class-1] +1;
+			for(j = 0; j < samples; j++)
+			{
+				auxCentroids[(_class-1)*samples+j] += local_data[i*samples+j];
+			}
+		}
+		/* int MPI_Allreduce(const void *sendbuf, void *recvbuf, int count,
+                  MPI_Datatype datatype, MPI_Op op, MPI_Comm c */
+
+		MPI_Allreduce(MPI_IN_PLACE, pointsPerClass, K, MPI_FLOAT, MPI_SUM, COMM);
+		MPI_Allreduce(MPI_IN_PLACE, auxCentroids, K*samples, MPI_FLOAT, MPI_SUM, COMM);
+		MPI_Allreduce(MPI_IN_PLACE, &changes, 1, MPI_INT, MPI_SUM, COMM);
+
+		for(k = 0; k < K; k++)
+		{
+			/* second step of calculating the mean for each class. Divide by the number
+		     * of elements of each class */
+			for(j = 0; j < samples; j++)
+			{
+				auxCentroids[k*samples+j] /= pointsPerClass[k];
+			}
+		}
+
+		/* here we check if maxDist will eventually be bigger than maxThreshold */
+		maxDist=FLT_MIN;
+		for(k = 0; k < K; k++)
+		{
+			distCentroids[k] = euclideanDistance(&centroids[k*samples], &auxCentroids[k*samples], samples);
+			if(distCentroids[k]>maxDist)
+			{
+				maxDist=distCentroids[k];
+			}
+		}
+		memcpy(centroids, auxCentroids, (K*samples*sizeof(float)));
+
+		sprintf(line,"\n[%d] Cluster changes: %d\tMax. centroid distance: %f", it, changes, maxDist);
+		outputMsg = strcat(outputMsg,line);
 	} while((changes>minChanges) && (it<maxIterations) && (maxDist>maxThreshold));
 
 /*
@@ -284,6 +333,7 @@ if (rank == 0)
 	free(auxCentroids);
 
 	free(local_classMap);
+	// free(local_auxCentroids);
 
 	MPI_Finalize();
 	//END CLOCK*****************************************
@@ -306,6 +356,7 @@ if (rank == 0)
 	free(auxCentroids);
 
 	free(local_classMap);
+	// free(local_auxCentroids);
 
 	MPI_Finalize();
 }

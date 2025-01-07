@@ -467,7 +467,6 @@ void recalculateCentroidsStep1GPU(float* points,	   /* in */	 /* array of points
 		/* pointsPerClass has to be incremented atomically to avoid race condition over different threads
 		 * belonging to the same class */
 		atomicAdd(&pointsPerClass[_class - 1], 1);
-
 		for (int j = 0; j < samples_d; j++)
 		{
 			/* NOTE: There should NOT be an issue with floating point rounding here, since

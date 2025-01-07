@@ -3,3 +3,4 @@ cKMEANS_omp
 KMEANS_mpi
 KMEANS_cuda
 test*.out
+KMEANS_mpiomp

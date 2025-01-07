@@ -175,7 +175,6 @@ int main(int argc, char* argv[])
 
 	/* Thread local bufffers */
 	float local_data[local_sz*samples];
-	float local_centroids[K*samples];
 	int* local_classMap = (int*)calloc(local_sz,sizeof(int));
 
 
@@ -212,6 +211,7 @@ int main(int argc, char* argv[])
 	{
 		it++;
 		changes = 0;
+#		pragma omp parallel for shared(local_classMap, changes) private(i, _class, minDist, k, dist)
 		for (i = 0; i < local_sz; i++)
 		{
 			_class = 1;
@@ -226,8 +226,9 @@ int main(int argc, char* argv[])
 					_class=k+1;
 				}
 			}
-			if(local_classMap[i]!=_class)
+			if(local_classMap[i] != _class)
 			{
+#				pragma omp atomic
 				changes++;
 			}
 			local_classMap[i]=_class;
@@ -235,17 +236,38 @@ int main(int argc, char* argv[])
 
 		zeroIntArray(pointsPerClass,K);
 		zeroFloatMatriz(auxCentroids,K,samples);
-
-		for(i = 0; i < local_sz; i++)
+#		pragma omp parallel
 		{
-			/* first step of calculating the mean for each class. Add the value of data
-		     * points belonging to that class */
-			/* ATTENTION: All reduce on local_auxCentroids and pointsPerClass?? most likely YES */
-			_class = local_classMap[i];
-			pointsPerClass[_class-1] = pointsPerClass[_class-1] +1;
-			for(j = 0; j < samples; j++)
+			int* local_pointsPerClass = (int*) calloc(K,sizeof(int));
+			float* local_auxCentroids = (float*) calloc(K*samples,sizeof(float));
+#			pragma omp for private (_class, i, j)
+			for(int i = 0; i < local_sz; i++)
 			{
-				auxCentroids[(_class-1)*samples+j] += local_data[i*samples+j];
+				/* first step of calculating the mean for each class. Add the value of data
+				* points belonging to that class */
+				/* ATTENTION: All reduce on local_auxCentroids and pointsPerClass?? most likely YES */
+				_class = local_classMap[i];
+				local_pointsPerClass[_class-1] += 1;
+
+				for(int j = 0; j < samples; j++)
+				{
+					local_auxCentroids[(_class-1)*samples+j] += local_data[i*samples+j];
+				}
+			}
+
+
+	#		pragma omp critical
+			{
+				for (int k = 0; k < K; k++)
+				{
+					pointsPerClass[k] += local_pointsPerClass[k];
+					for (int j = 0; j < samples; j++)
+					{
+						auxCentroids[k * samples + j] += local_auxCentroids[k * samples + j];
+					}
+				}
+				free(local_pointsPerClass);
+				free(local_auxCentroids);
 			}
 		}
 		/* int MPI_Allreduce(const void *sendbuf, void *recvbuf, int count,
@@ -267,6 +289,7 @@ int main(int argc, char* argv[])
 
 		/* here we check if maxDist will eventually be bigger than maxThreshold */
 		maxDist=FLT_MIN;
+
 		for(k = 0; k < K; k++)
 		{
 			distCentroids[k] = euclideanDistance(&centroids[k*samples], &auxCentroids[k*samples], samples);
@@ -275,11 +298,20 @@ int main(int argc, char* argv[])
 				maxDist=distCentroids[k];
 			}
 		}
+
 		memcpy(centroids, auxCentroids, (K*samples*sizeof(float)));
+		MPI_Allreduce(MPI_IN_PLACE, &maxDist, 1, MPI_FLOAT, MPI_MAX, COMM);
 
 		sprintf(line,"\n[%d] Cluster changes: %d\tMax. centroid distance: %f", it, changes, maxDist);
 		outputMsg = strcat(outputMsg,line);
 	} while((changes>minChanges) && (it<maxIterations) && (maxDist>maxThreshold));
+
+
+
+
+	end = omp_get_wtime();
+	MPI_Gather(local_classMap, local_sz, MPI_INT, classMap, local_sz, MPI_INT, root, COMM);
+
 
 /*
  *
@@ -288,14 +320,24 @@ int main(int argc, char* argv[])
  */
 
 
-if (rank == 0)
+	if (rank == 0)
 {
-	MPI_Gather(local_classMap, local_sz, MPI_INT, classMap, local_sz, MPI_INT, root, COMM);
+
+		// MPI_Reduce(
+	//    void* send_data,
+	//    void* recv_data,
+	//    int count,
+	//    MPI_Datatype datatype,
+	//    MPI_Op op,
+	//    int root,
+	//    MPI_Comm communicator)
+	MPI_Reduce(MPI_IN_PLACE, &start, 1, MPI_DOUBLE, MPI_MIN, root, COMM);
+	MPI_Reduce(MPI_IN_PLACE, &end, 1, MPI_DOUBLE, MPI_MAX, root, COMM);
 	// Output and termination conditions
 	printf("%s",outputMsg);
 
 	//END CLOCK*****************************************
-	end = omp_get_wtime();
+
 	printf("\nComputation: %f seconds", end - start);
 	fflush(stdout);
 	//**************************************************
@@ -341,10 +383,11 @@ if (rank == 0)
 	printf("\n\nMemory deallocation: %f seconds\n", end - start);
 	fflush(stdout);
 	//***************************************************/
-}else
+} else
 {
+	MPI_Reduce(&start, NULL, 1, MPI_DOUBLE, MPI_MIN, root, COMM);
+	MPI_Reduce(&end, NULL, 1, MPI_DOUBLE, MPI_MAX, root, COMM);
 
-	MPI_Gather(local_classMap, local_sz, MPI_INT, classMap, local_sz, MPI_INT, root, COMM);
 
 	//Free memory
 	free(data);

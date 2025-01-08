@@ -161,26 +161,24 @@ int main(int argc, char* argv[])
 	int rank, comm_sz;
 	int root = 0;
 
+	/* Initialize MPI */
 	MPI_Init(NULL, NULL);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_sz);
 	const MPI_Comm COMM = MPI_COMM_WORLD;
 
-	/* Set the number of threads that are spawned by each MPI thread */
+	/* Set the number of threads that are spawned by each MPI thread. ATTENTION: NLOGIC_CORES is a compile time constant and
+	 * must be changed based on what system this program is compiled on! */
 	int nthreads = NLOGIC_CORES / comm_sz;
 	omp_set_num_threads(nthreads);
 
-	/* ATTENTION: local_sz is an integer. Check that the division is able to fit the last part of the divided array */
     int local_sz = ceil(lines / comm_sz);
 
 	/* Thread local bufffers */
 	float local_data[local_sz*samples];
 	int* local_classMap = (int*)calloc(local_sz,sizeof(int));
 
-
-	// float* local_auxCentroids = (float*)calloc(K*samples, sizeof(float));
-
-	/* Scatter data array and broadcast centroids array. ATTENTION: We might not need to broadcast centroids now */
+	/* Scatter data array */
 	if (rank == 0)
 	{
 		MPI_Scatter(data, local_sz*samples, MPI_FLOAT, local_data, local_sz*samples, MPI_FLOAT, root, MPI_COMM_WORLD);
@@ -212,42 +210,53 @@ int main(int argc, char* argv[])
 		it++;
 		changes = 0;
 #		pragma omp parallel for shared(local_classMap, changes) private(i, _class, minDist, k, dist)
-		for (i = 0; i < local_sz; i++)
+		for (i = 0; i < local_sz; i++) /* Iterate over each point */
 		{
 			_class = 1;
 			minDist = FLT_MAX;
-			for (k = 0; k < K; k++)
+			for (k = 0; k < K; k++) /* Iterate over each centroid */
 			{
+				/* compute the distance of point i from centroid k */
 				dist=euclideanDistance(&local_data[i*samples], &centroids[k*samples], samples);
 
+				/* if the dist is smaller than the current minimum distance, update minDist and set _class to current k */
 				if(dist < minDist)
 				{
 					minDist=dist;
 					_class=k+1;
 				}
 			}
+			/* After the loop, _class will store the centroid closest to point i */
 			if(local_classMap[i] != _class)
 			{
+				/* ATTENTION: changes must be updated atomically */
 #				pragma omp atomic
 				changes++;
 			}
+			/* ATTENTION: always update local_classMap */
 			local_classMap[i]=_class;
 		}
 
+		/* Zero out pointsPerClass and auxCentroids for this iteration */
 		zeroIntArray(pointsPerClass,K);
 		zeroFloatMatriz(auxCentroids,K,samples);
 #		pragma omp parallel
 		{
+			/* To parallelize this section, we need local buffers to each thread to store computed points per each class and
+			 * to store auxCentroids */
 			int* local_pointsPerClass = (int*) calloc(K,sizeof(int));
 			float* local_auxCentroids = (float*) calloc(K*samples,sizeof(float));
+
+			/* Split this loop between number of threads */
 #			pragma omp for private (_class, i, j)
 			for(int i = 0; i < local_sz; i++)
 			{
-				/* first step of calculating the mean for each class. Add the value of data points belonging to that class */
+				/* Get class of point i */
 				_class = local_classMap[i];
 				local_pointsPerClass[_class-1] += 1;
 				for(int j = 0; j < samples; j++)
 				{
+					/* Add the value of local data points belonging to _class */
 					local_auxCentroids[(_class-1)*samples+j] += local_data[i*samples+j];
 				}
 			}
@@ -321,14 +330,6 @@ int main(int argc, char* argv[])
 	if (rank == 0)
 {
 
-		// MPI_Reduce(
-	//    void* send_data,
-	//    void* recv_data,
-	//    int count,
-	//    MPI_Datatype datatype,
-	//    MPI_Op op,
-	//    int root,
-	//    MPI_Comm communicator)
 	MPI_Reduce(MPI_IN_PLACE, &start, 1, MPI_DOUBLE, MPI_MIN, root, COMM);
 	MPI_Reduce(MPI_IN_PLACE, &end, 1, MPI_DOUBLE, MPI_MAX, root, COMM);
 	// Output and termination conditions
@@ -397,7 +398,6 @@ int main(int argc, char* argv[])
 	free(auxCentroids);
 
 	free(local_classMap);
-	// free(local_auxCentroids);
 
 	MPI_Finalize();
 }

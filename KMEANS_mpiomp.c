@@ -243,20 +243,15 @@ int main(int argc, char* argv[])
 #			pragma omp for private (_class, i, j)
 			for(int i = 0; i < local_sz; i++)
 			{
-				/* first step of calculating the mean for each class. Add the value of data
-				* points belonging to that class */
-				/* ATTENTION: All reduce on local_auxCentroids and pointsPerClass?? most likely YES */
+				/* first step of calculating the mean for each class. Add the value of data points belonging to that class */
 				_class = local_classMap[i];
 				local_pointsPerClass[_class-1] += 1;
-
 				for(int j = 0; j < samples; j++)
 				{
 					local_auxCentroids[(_class-1)*samples+j] += local_data[i*samples+j];
 				}
 			}
-
-
-	#		pragma omp critical
+#			pragma omp critical
 			{
 				for (int k = 0; k < K; k++)
 				{
@@ -277,6 +272,7 @@ int main(int argc, char* argv[])
 		MPI_Allreduce(MPI_IN_PLACE, auxCentroids, K*samples, MPI_FLOAT, MPI_SUM, COMM);
 		MPI_Allreduce(MPI_IN_PLACE, &changes, 1, MPI_INT, MPI_SUM, COMM);
 
+#		pragma omp parallel for shared(pointsPerClass, auxCentroids) private(k, j)
 		for(k = 0; k < K; k++)
 		{
 			/* second step of calculating the mean for each class. Divide by the number
@@ -287,9 +283,9 @@ int main(int argc, char* argv[])
 			}
 		}
 
+
 		/* here we check if maxDist will eventually be bigger than maxThreshold */
 		maxDist=FLT_MIN;
-
 		for(k = 0; k < K; k++)
 		{
 			distCentroids[k] = euclideanDistance(&centroids[k*samples], &auxCentroids[k*samples], samples);
@@ -297,6 +293,7 @@ int main(int argc, char* argv[])
 			{
 				maxDist=distCentroids[k];
 			}
+
 		}
 
 		memcpy(centroids, auxCentroids, (K*samples*sizeof(float)));
@@ -403,7 +400,7 @@ int main(int argc, char* argv[])
 
 	MPI_Finalize();
 }
-	return 0;
+	return EXIT_SUCCESS;
 }
 
 
@@ -547,14 +544,16 @@ This function could be modified
 */
 float euclideanDistance(float *point, float *center, int samples)
 {
+	int i;
 	float dist=0.0;
-	for(int i=0; i<samples; i++) 
+	for(i = 0; i < samples; i++)
 	{
 		dist+= (point[i]-center[i])*(point[i]-center[i]);
 	}
 	dist = sqrt(dist);
 	return(dist);
 }
+
 
 /*
 Function zeroFloatMatriz: Set matrix elements to 0

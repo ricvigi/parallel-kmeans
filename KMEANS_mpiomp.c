@@ -283,8 +283,9 @@ int main(int argc, char* argv[])
 			}
 		}
 
-
 		/* here we check if maxDist will eventually be bigger than maxThreshold */
+		/* ATTENTION: parallelizing this loop is almost always a bad idea, since K is too small to justify further
+		 * parallelization with OpenMP */
 		maxDist=FLT_MIN;
 		for(k = 0; k < K; k++)
 		{

@@ -7,3 +7,4 @@ KMEANS_mpiomp
 out/*
 myOut/
 cudaOut/
+mySequentialOut

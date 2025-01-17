@@ -8,3 +8,4 @@ out/*
 myOut/
 cudaOut/
 mySequentialOut
+sequentialOut/

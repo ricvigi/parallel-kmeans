@@ -4,8 +4,8 @@ KMEANS_mpi
 KMEANS_cuda
 test*.out
 KMEANS_mpiomp
-out/*
-myOut/
-cudaOut/
-mySequentialOut
-sequentialOut/
+# out/*
+# myOut/
+# cudaOut/
+# mySequentialOut
+# sequentialOut/

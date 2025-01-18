@@ -9,3 +9,4 @@ myOut/
 cudaOut/
 mySequentialOut
 sequentialOut/
+KMEANS_mpiompv2

@@ -19,7 +19,7 @@ FLAGS=-O3 -Wall
 LIBS=-lm
 
 # Targets to build
-OBJS=KMEANS_seq KMEANS_omp KMEANS_mpi KMEANS_cuda KMEANS_cudav2 KMEANS_mpiomp
+OBJS=KMEANS_seq KMEANS_omp KMEANS_mpi KMEANS_cuda KMEANS_cudav2 KMEANS_mpiomp KMEANS_mpiompv2
 
 # Rules. By default show help
 help:
@@ -56,6 +56,8 @@ KMEANS_cudav2: KMEANS_cudav2.cu
 	$(CUDACC) $(DEBUG) $< $(LIBS) -Xcompiler $(OMPFLAG) -o $@
 
 KMEANS_mpiomp: KMEANS_mpiomp.c
+	$(MPICC) $(FLAGS) $(DEBUG) $(OMPFLAG) $< $(LIBS) -o $@
+KMEANS_mpiompv2: KMEANS_mpiompv2.c
 	$(MPICC) $(FLAGS) $(DEBUG) $(OMPFLAG) $< $(LIBS) -o $@
 
 

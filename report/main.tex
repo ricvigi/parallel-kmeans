@@ -1,0 +1,62 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+ \geometry{
+ a4paper,
+ total={170mm,257mm},
+ left=20mm,
+ top=20mm,
+ }
+ \usepackage{graphicx}
+ \usepackage{titling}
+
+ \title{Parallelization of K-means clustering algorithm through MPI+OpenMP and CUDA
+}
+\author{Riccardo Inverardi Galli}
+\date{January 2025}
+ 
+ \usepackage{fancyhdr}
+\fancypagestyle{plain}{%  the preset of fancyhdr 
+    \fancyhf{} % clear all header and footer fields
+    %\fancyfoot[R]{\includegraphics[width=2cm]{KULEUVEN_GENT_RGB_LOGO.png}}
+    \fancyfoot[L]{\thedate}
+    \fancyhead[L]{K-means project report}
+    \fancyhead[R]{\theauthor}
+}
+\makeatletter
+\def\@maketitle{%
+  \newpage
+  \null
+  \vskip 1em%
+  \begin{center}%
+  \let \footnote \thanks
+    {\LARGE \@title \par}%
+    \vskip 1em%
+    %{\large \@date}%
+  \end{center}%
+  \par
+  \vskip 1em}
+\makeatother
+
+\usepackage{lipsum}  
+\usepackage{fouriernc} % Added for Fourier New Century font
+
+\begin{document}
+
+\maketitle
+
+\noindent\begin{tabular}{@{}ll}
+    Student & \theauthor\\
+     Course &  Programmazione di sistemy Embedded e Multicore\\
+     Professor & Daniele de Sensi
+\end{tabular}
+
+\section*{Overview of K-means}
+K-means is a machine learning clustering algorithm used to perform a classification task over a collection of points of arbitrary and equal dimensionality. In k-means, the user chooses a number K of classes and the algorithm, given a set of points $P$ of cardinality $|P|=m$, where each point $p\in P$ is $n$ dimensional, such  that $$p_i=(p_{i_{1}}, p_{i_{2}},\ldots,p_{i_{n}}),\space 0\leq i<m$$ and given a set $C$ of centroids of cardinality $|C|=k$, each centroid of dimensionality $n$, will assign, over a series of iterations, each point to a centroid $c\in C$. The assignment for a point is performed by computing the euclidean distance $$\sqrt{(p_i - c_j)^2}$$ between a point $i$ and each centroid $j$, and choosing the smallest value. This procedure is summarized in the following formula, which also takes into account the dimensionality $d$ of points $$\min_{0\leq k <K}\sqrt{\sum_{d=1}^{D}(x_{i_d}-c_{k_d})^2}$$ where $x_{i_d}$ is the d-th component of point $i$
+\section*{Objectives}
+\lipsum[3-3]
+
+\section*{Plan}
+\lipsum[4-4]
+
+\end{document}

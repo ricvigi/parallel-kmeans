@@ -274,9 +274,10 @@ int main(int argc, char* argv[])
 				free(local_auxCentroids);
 			}
 		}
-		/* int MPI_Allreduce(const void *sendbuf, void *recvbuf, int count,
-                  MPI_Datatype datatype, MPI_Op op, MPI_Comm c */
 
+		/* Perform Allreduce operations on pointsPerClass, auxCentroids and changes. Allreduce on auxCentroids and
+		 * pointsPerClass is needed because each MPI process can only compute its local share of computation for the new
+		 * centroids, but to have a new set of centroids we need data from all processes */
 		MPI_Allreduce(MPI_IN_PLACE, pointsPerClass, K, MPI_FLOAT, MPI_SUM, COMM);
 		MPI_Allreduce(MPI_IN_PLACE, auxCentroids, K*samples, MPI_FLOAT, MPI_SUM, COMM);
 		MPI_Allreduce(MPI_IN_PLACE, &changes, 1, MPI_INT, MPI_SUM, COMM);
@@ -317,6 +318,7 @@ int main(int argc, char* argv[])
 
 
 	end = omp_get_wtime();
+	MPI_Barrier(); /* Just a safety barrier. */
 	MPI_Gather(local_classMap, local_sz, MPI_INT, classMap, local_sz, MPI_INT, root, COMM);
 
 

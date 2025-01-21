@@ -9,11 +9,13 @@
  }
  \usepackage{graphicx}
  \usepackage{titling}
-
+ \usepackage{listings}
+ \usepackage{enumerate}
  \title{Parallelization of K-means clustering algorithm through MPI+OpenMP and CUDA
 }
 \author{Riccardo Inverardi Galli}
 \date{January 2025}
+
  
  \usepackage{fancyhdr}
 \fancypagestyle{plain}{%  the preset of fancyhdr 
@@ -47,16 +49,178 @@
 
 \noindent\begin{tabular}{@{}ll}
     Student & \theauthor\\
-     Course &  Programmazione di sistemy Embedded e Multicore\\
+     Course &  Programmazione di sistemi Embedded e Multicore\\
      Professor & Daniele de Sensi
 \end{tabular}
 
 \section*{Overview of K-means}
-K-means is a machine learning clustering algorithm used to perform a classification task over a collection of points of arbitrary and equal dimensionality. In k-means, the user chooses a number K of classes and the algorithm, given a set of points $P$ of cardinality $|P|=m$, where each point $p\in P$ is $n$ dimensional, such  that $$p_i=(p_{i_{1}}, p_{i_{2}},\ldots,p_{i_{n}}),\space 0\leq i<m$$ and given a set $C$ of centroids of cardinality $|C|=k$, each centroid of dimensionality $n$, will assign, over a series of iterations, each point to a centroid $c\in C$. The assignment for a point is performed by computing the euclidean distance $$\sqrt{(p_i - c_j)^2}$$ between a point $i$ and each centroid $j$, and choosing the smallest value. This procedure is summarized in the following formula, which also takes into account the dimensionality $d$ of points $$\min_{0\leq k <K}\sqrt{\sum_{d=1}^{D}(x_{i_d}-c_{k_d})^2}$$ where $x_{i_d}$ is the d-th component of point $i$
-\section*{Objectives}
-\lipsum[3-3]
+K-means is a machine learning clustering algorithm used to perform a classification task on a collection of points of arbitrary dimensionality. In k-means, the user chooses a number K of classes and the algorithm, given a set of points $P$ of cardinality $|P|=m$, where each point $p\in P$ has dimensionality $D$, such  that $$p_i=(p_{i_{1}}, p_{i_{2}},\ldots,p_{i_{D}}),\space 0\leq i<m$$ and given a set $C$ of centroids of cardinality $|C|=k$, each centroid of dimensionality $D$, will assign, over a series of iterations, each point to a centroid $c\in C$. The assignment of a point is performed by computing the euclidean distance $$\sqrt{(p_i - c_j)^2}$$ between a point $i$ and each centroid $j$ and choosing the smallest between these values. This procedure is summarized in the following formula, which also takes into account the dimensionality $D$ of points 
+\begin{equation}
+    \min_{0\leq k <K}\sqrt{\sum_{d=1}^{D}(x_{i_d}-c_{k_d})^2}
+    \label{eq:mindist}
+\end{equation}
+where $x_{i_d}$ is the d-th component of point $i$. The sequential version of the program provides the following straightforward implementation of euclidean distances:
+\begin{lstlisting}
+    float euclideanDistance(float *point, float *center, int samples)
+{
+	int i;
+	float dist=0.0;
+	for(i = 0; i < samples; i++)
+	{
+		dist+= (point[i]-center[i])*(point[i]-center[i]);
+	}
+	dist = sqrt(dist);
+	return(dist);
+}
+\end{lstlisting}
+It is important to point out that centroids do not possess any special properties. Initially, they are just points chosen at random from the set of points $P$, and after the first iteration each centroid $c_k$ is computed as the average of all points $p$ that are assigned to $k$. 
+\begin{equation}
+    c_k=\frac{1}{|K_i|}\sum_{i\in K_i}x_i
+    \label{eq:newcentroid}
+\end{equation}
+%$$c_k=\frac{1}{|K_i|}\sum_{i\in K_i}x_i$$ 
+\\The K-means algorithm works as follows:
+\begin{enumerate}
+    \item Select K random centroids from the point cloud $P$.
+    \item Assign each point $p \in P$ to the nearest centroid by picking the smallest Euclidean distance for that point from all the distances between that point and all centroids (using ~\ref{eq:mindist}).
+    \item Recalculate the centroids of each cluster as the mean of the data points assigned to each cluster (using ~\ref{eq:newcentroid}).
+    \item Repeat steps 2 and 3 until:
+    \begin{enumerate}
+        \item The centroids do not change significantly; i.e. between one iteration and the previous one, the maximum movement of all centroids within each cluster is less than a given threshold.
+        \item The number of data point that move from one cluster to another between one iteration and the previous one is less than a given threshold.
+        \item A predefined maximum number of iterations is reached.
+    \end{enumerate}
+\end{enumerate}
+\section*{MPI+OpenMP}
+The first implementation leverages the parallelization opportunities presented by using in conjunction MPI and OpenMP. MPI is a standard designed to function on parallel computing architectures, based on the SPMD (single program, multiple data) paradigm, where multiple autonomous processors simultaneously execute the same program at independent points, while OpenMP is a API that supports multi-platform shared memory multi-processing programming. \\The approach chosen when combining these two parallel programming paradigms  was very simple: Because of the nature of K-means, the only factors that can significantly increase the runtime of the application are
+\begin{enumerate}
+    \item Cardinality $|P|$ of the point cloud.
+    \item Dimensionality of the points
+\end{enumerate}
+The most straight-forward approach was to split the data cloud between a fixed number of MPI processes, and then parallelize the rest of the computation using OpenMP pragmas. This approach works very well due to the nature of the K-means algorithm; Since the heaviest computation at each iteration is computing the Euclidean distance of all points from each centroid (with $m$ points and $K$ centroids, we must perform $mK$ distance calculations), scattering the points through $n$ MPI processes reduces the theoretical computation time by a factor $n$ (there are no dependencies between computing distances of two points $i$ and $j$, $i\neq j$). This works because there is no redundant computation between processes, and each process $i$ computes it's own part of $$[p_l, p_{l+1}, \ldots, p_j]_{1\leq l \leq j \leq m} \circ([c_{l_1},\ldots,c_{l_k}])$$
+where $p_l\in P$, $c_l \in C$, and $\circ$ denotes the application of the Euclidean distance algorithm for each $p$.\\ To further increase parallelization OpenMP is used to parallelize for loops. This setup requires some calculations on the number of threads OpenMP can use. We want to have 
+\begin{lstlisting}
+    MPI_proc + OMP_threads = CPU_cores
+\end{lstlisting}
+This number tends to be different on each system, thus we set the number of OpenMP threads to 
+\begin{lstlisting}
+    int nthreads=NLOGIC_CORES / comm_sz;
+    omp_set_num_threads(nthreads);
+\end{lstlisting}
+where NLOGIC\_CORES is the total number of logic cores of the system and is a compile time constant, and comm\_sz is a runtime variable containing the size of MPI's communicator (the number of processes we specify with the -n flag of mpirun). This setup ensures that we are always using the full capacity of the CPU. To know the value of NLOGIC\_CORES, we can run the following command on UNIX systems:
+\begin{lstlisting}
+    lscpu | grep -E "^Thread|^Core|^Socket|^CPU\("
+\end{lstlisting}
+By default, MPI creates a copy of all buffers for each process (SPMD), thus we only need to allocate two additional arrays, one to store the local part of the point cloud in each process, and another to store the local class map for the local point could. A class map is an array the indicates to what centroid $k$ a point $i$ belongs. \\The program contains three parallel sections that do most of the computation for one iteration, while the last loop is performed sequentially for each MPI process, since the number of operations is too small to justify further parallelization overhead.\\ To distribute the point cloud between MPI processes, we first allocate this buffer:
+\begin{lstlisting}
+    int local_sz = lines / comm_sz;
 
-\section*{Plan}
-\lipsum[4-4]
+    /* Thread local bufffers */
+    float local_data[local_sz*samples];
+    int* local_classMap = (int*)calloc(local_sz,sizeof(int));
+\end{lstlisting}
+Here, \textbf{lines} contains $|P|$ (number of points), and \textbf{samples} is an integer indicating the dimensionality $D$ of each point. To store a fraction of the point cloud, we initialize \textbf{local\_data} as a one dimensional array, and we address different points using row-major order. This kind of ordering allows us to abstract 2D arrays while still storing points contiguously in memory. To access dimension $j$ of point $i$, we translate $A[i][j]$ in $A[i*D + j]$. After the allocation we use MPI\_Scatter to distribute the point cloud evenly, choosing process 0 as the root process for simplicity, although any other process could have done it.
+\begin{lstlisting}
 
+    /* Scatter data array */
+    if (rank == 0)
+    {
+        MPI_Scatter(data, local_sz*samples, MPI_FLOAT, local_data, 
+        local_sz*samples, MPI_FLOAT, root, COMM);
+    } else
+    {
+	MPI_Scatter(NULL, local_sz*samples, MPI_FLOAT, local_data, 
+        local_sz*samples, MPI_FLOAT, root, COMM);
+    }
+\end{lstlisting}
+Initially, there are very few differences between the sequential version and this implementation. The flexibility of OpenMP pragmas allows to leave the code virtually untouched, excluding the limits of the loop and the arrays to work on, which are now bound to each local instance of the data cloud. The variables \textbf{changes} and \textbf{local\_classMap} are declared as shared in the pragma, while the rest of the variables are kept private to each spawned thread. It is necessary to increment \textbf{changes} atomically to avoid race conditions and to ensure that the final value is the correct one. This is crucial because \textbf{changes} is a variable that determines a possible exit condition, so we must be very careful when dealing with it to make sure that we don't accidentally lose some data.
+\begin{lstlisting}
+    it++;
+    changes = 0;
+    #pragma omp parallel for shared(local_classMap, changes)\
+    private(i, _class, minDist, k, dist)
+    for (i = 0; i < local_sz; i++) /* Iterate over each point */
+    {
+	_class = 1;
+	minDist = FLT_MAX;
+        for (k = 0; k < K; k++) /* Iterate over each centroid */
+	{
+            dist=euclideanDistance(&local_data[i*samples], &centroids[k*samples], samples);
+
+	   if(dist < minDist)
+	   {
+		minDist=dist;
+		_class=k+1;
+	   }
+        }
+        if(local_classMap[i] != _class)
+        {
+            #pragma omp atomic
+	    changes++;
+        }
+        local_classMap[i]=_class;
+    }
+\end{lstlisting}
+The second part of the program needed some modifications from the original sequential version. In the sequential program computing the new centroids is done in two steps:
+\begin{enumerate}
+    \item Accumulate all the values of points belonging to each class.
+    \item Divide the accumulate values by the number of points belonging to each class.
+\end{enumerate}
+This approach must be changed in the parallel version because at this point of the algorithm processes do not share a common view of the data cloud. Each process can only accumulate to each class the number of points it was assigned. To solve this problem, we allocate two arrays to store a local version of \textbf{auxCentroids} and \textbf{pointsPerClass}. We use these arrays to handle local computation and then use a critical section to update the global (to each MPI process) arrays. After we are done with this step, we call MPI\_Allreduce on \textbf{pointsPerClass}, \textbf{auxCentroids}, and \textbf{changes}, so that now all MPI processes share a common view of the accumulated values. Note that the last accumulation step (summing up all the values from all the different processes) is performed by the Allreduce operation. \\After Allreduce is called, all the processes share a common view of the accumulated values and the number of points belonging to each class, and it's possible to perform the last step of centroid calculation, which is dividing by the number of points that belong to each class $k$. We use the special \textbf{MPI\_IN\_PLACE} flag to tell MPI that we wish to perform the Allreduce operation using the same array as sending and receiving array.
+\begin{lstlisting}
+    #pragma omp parallel
+    {
+        int* local_pointsPerClass = (int*) calloc(K, sizeof(int));
+        float* local_auxCentroids = (float*) calloc(K*samples, sizeof(float));
+
+        #pragma omp for private(_class, i, j)
+        for (int i = 0; i < local_sz; i++)
+        {
+            _class = local_classMap[i];
+            local_pointsPerClass[_class-1] += 1;
+            for(int j = 0; j < samples; j++)
+            {
+                local_auxCentroids[(_class-1)*samples+j] += local_data[i*samples+j];
+            }
+        }
+        #pragma omp critical
+        {
+            for (int k = 0; k < K; k++)
+            {
+                pointsPerClass[k] += local_pointsPerClass[k];
+                for (int j = 0; j < samples; j++)
+                {
+                    auxCentroids[k * samples + j] += local_auxCentroids[k * samples + j];
+                }
+            }
+        }
+        free(local_pointsPerClass);
+        free(local_auxCentroids);
+    }
+    MPI_Allreduce(MPI_IN_PLACE, pointsPerClass, K, MPI_FLOAT, MPI_SUM, COMM);
+    MPI_Allreduce(MPI_IN_PLACE, auxCentroids, K*samples, MPI_FLOAT, MPI_SUM, COMM);
+    MPI_Allreduce(MPI_IN_PLACE, &changes, 1, MPI_INT, MPI_SUM, COMM);
+    #pragma omp parallel for shared(pointsPerClass, auxCentroids) private(k, j)
+    for(k = 0; k < K; k++)
+    {
+        for(j = 0; j < samples; j++)
+        {
+            auxCentroids[k*samples+j] /= pointsPerClass[k];
+        }
+    }
+\end{lstlisting}
+After this step is performed, the computation for one iteration is finished. The new centroids have been computed, and all that is left is to compute the distance between the old centroids stored in \textbf{centroids} and the new ones stored in \textbf{auxCentroids}. This has to be done in order to check if the new centroids are at a significant distance from the old ones. If they are not, the algorithm is free to terminate. This last part is left sequential for each MPI process, and is identical to the original sequential code. 
+\begin{lstlisting}
+    maxDist=FLT_MIN;
+    for(k = 0; k < K; k++)
+    {
+        distCentroids[k] = euclideanDistance(&centroids[k*samples], &auxCentroids[k*samples], samples);
+        if(distCentroids[k]>maxDist)
+        {
+            maxDist=distCentroids[k];
+        }
+    }
+    memcpy(centroids, auxCentroids, (K*samples*sizeof(float)));
+\end{lstlisting}
+\section*{}
 \end{document}

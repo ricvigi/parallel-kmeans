@@ -26,7 +26,10 @@
 
 #define MAXLINE 2000
 #define MAXCAD 200
-#define NLOGIC_CORES 8
+#define NLOGIC_CORES 8 /*
+						* ATTENTION: set this to the number of logic cores of your system. To view this number, run
+						* lscpu | grep -E "^Thread|^Core|^Socket|^CPU\("
+						*/
 
 
 //Macros
@@ -126,7 +129,7 @@ int main(int argc, char* argv[])
 	initCentroids(data, centroids, centroidPos, samples, K);
 
 	char *outputMsg = (char *)calloc(10000,sizeof(char));
-	char line[100];
+	char line[10000];
 
 	int j, k;
 	int _class;
@@ -167,12 +170,23 @@ int main(int argc, char* argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &comm_sz);
 	const MPI_Comm COMM = MPI_COMM_WORLD;
 
+	if ((lines % comm_sz) != 0)
+	{
+		if (rank == 0)
+		{
+			fprintf(stderr, "\n[*]Error: the number of points must be evenly divisible by the number of MPI processes. Currently we have %d points and %d processes\n", lines, comm_sz);
+			fflush(stderr);
+			exit(EXIT_FAILURE);
+		}
+	}
+
 	/* Set the number of threads that are spawned by each MPI thread. ATTENTION: NLOGIC_CORES is a compile time constant and
 	 * must be changed based on what system this program is compiled on! */
 	int nthreads = NLOGIC_CORES / comm_sz;
 	omp_set_num_threads(nthreads);
 
-    int local_sz = ceil(lines / comm_sz);
+    int local_sz = lines / comm_sz;
+	printf("\nlocal_sz is %d\n", local_sz);
 
 	/* Thread local bufffers */
 	float local_data[local_sz*samples];
@@ -181,11 +195,11 @@ int main(int argc, char* argv[])
 	/* Scatter data array */
 	if (rank == 0)
 	{
-		MPI_Scatter(data, local_sz*samples, MPI_FLOAT, local_data, local_sz*samples, MPI_FLOAT, root, MPI_COMM_WORLD);
+		MPI_Scatter(data, local_sz*samples, MPI_FLOAT, local_data, local_sz*samples, MPI_FLOAT, root, COMM);
 
 	} else
 	{
-		MPI_Scatter(NULL, local_sz*samples, MPI_FLOAT, local_data, local_sz*samples, MPI_FLOAT, root, MPI_COMM_WORLD);
+		MPI_Scatter(NULL, local_sz*samples, MPI_FLOAT, local_data, local_sz*samples, MPI_FLOAT, root, COMM);
 	}
 
 
@@ -198,18 +212,11 @@ int main(int argc, char* argv[])
 	start = omp_get_wtime();
 	//**************************************************
 
-
-/*
- *
- * START HERE: DO NOT CHANGE THE CODE ABOVE THIS POINT
- *
- */
-
 	do
 	{
 		it++;
 		changes = 0;
-#		pragma omp parallel for shared(local_classMap, changes) private(i, _class, minDist, k, dist)
+#		pragma omp parallel for shared(local_classMap, changes, auxCentroids) private(i, _class, minDist, k, dist)
 		for (i = 0; i < local_sz; i++) /* Iterate over each point */
 		{
 			_class = 1;
@@ -242,12 +249,9 @@ int main(int argc, char* argv[])
 		zeroFloatMatriz(auxCentroids,K,samples);
 #		pragma omp parallel
 		{
-			/* To parallelize this section, we need local buffers to each thread to store computed points per each class and
-			 * to store auxCentroids */
 			int* local_pointsPerClass = (int*) calloc(K,sizeof(int));
 			float* local_auxCentroids = (float*) calloc(K*samples,sizeof(float));
 
-			/* Split this loop between number of threads */
 #			pragma omp for private (_class, i, j)
 			for(int i = 0; i < local_sz; i++)
 			{
@@ -270,9 +274,9 @@ int main(int argc, char* argv[])
 						auxCentroids[k * samples + j] += local_auxCentroids[k * samples + j];
 					}
 				}
-				free(local_pointsPerClass);
-				free(local_auxCentroids);
 			}
+			free(local_pointsPerClass);
+			free(local_auxCentroids);
 		}
 
 		/* Perform Allreduce operations on pointsPerClass, auxCentroids and changes. Allreduce on auxCentroids and
@@ -308,7 +312,7 @@ int main(int argc, char* argv[])
 		}
 
 		memcpy(centroids, auxCentroids, (K*samples*sizeof(float)));
-		MPI_Allreduce(MPI_IN_PLACE, &maxDist, 1, MPI_FLOAT, MPI_MAX, COMM);
+		// MPI_Allreduce(MPI_IN_PLACE, &maxDist, 1, MPI_FLOAT, MPI_MAX, COMM);
 
 		sprintf(line,"\n[%d] Cluster changes: %d\tMax. centroid distance: %f", it, changes, maxDist);
 		outputMsg = strcat(outputMsg,line);
@@ -318,19 +322,10 @@ int main(int argc, char* argv[])
 
 
 	end = omp_get_wtime();
-	MPI_Barrier(); /* Just a safety barrier. */
 	MPI_Gather(local_classMap, local_sz, MPI_INT, classMap, local_sz, MPI_INT, root, COMM);
 
-
-/*
- *
- * STOP HERE: DO NOT CHANGE THE CODE BELOW THIS POINT
- *
- */
-
-
 	if (rank == 0)
-{
+	{
 
 	MPI_Reduce(MPI_IN_PLACE, &start, 1, MPI_DOUBLE, MPI_MIN, root, COMM);
 	MPI_Reduce(MPI_IN_PLACE, &end, 1, MPI_DOUBLE, MPI_MAX, root, COMM);
@@ -376,7 +371,9 @@ int main(int argc, char* argv[])
 	free(auxCentroids);
 
 	free(local_classMap);
+	// free(local_pointsPerClass);
 	// free(local_auxCentroids);
+
 
 	MPI_Finalize();
 	//END CLOCK*****************************************
@@ -384,8 +381,8 @@ int main(int argc, char* argv[])
 	printf("\n\nMemory deallocation: %f seconds\n", end - start);
 	fflush(stdout);
 	//***************************************************/
-} else
-{
+	} else
+	{
 	MPI_Reduce(&start, NULL, 1, MPI_DOUBLE, MPI_MIN, root, COMM);
 	MPI_Reduce(&end, NULL, 1, MPI_DOUBLE, MPI_MAX, root, COMM);
 
@@ -400,9 +397,11 @@ int main(int argc, char* argv[])
 	free(auxCentroids);
 
 	free(local_classMap);
+	// free(local_pointsPerClass);
+	// free(local_auxCentroids);
 
 	MPI_Finalize();
-}
+	}
 	return EXIT_SUCCESS;
 }
 

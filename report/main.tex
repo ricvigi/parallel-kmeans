@@ -222,5 +222,75 @@ After this step is performed, the computation for one iteration is finished. The
     }
     memcpy(centroids, auxCentroids, (K*samples*sizeof(float)));
 \end{lstlisting}
-\section*{}
+\section*{CUDA}
+CUDA is Nvidia's proprietary parallel computing API which allows programmers to access a Nvidia GPU instruction set through the C++ programming language. GPU architectures are specifically made to leverage parallelism and high bandwidth communication inside each device, through a very high number of cores and several levels of in-device memory.\\
+To parallelize the K-means clustering algorithm on a GPU, one has to completely rethink the logic of the code. Since the main factor that influences runtime of the application is the number of points the algorithm has to iterate on, it was natural to think that the algorithm should be parallelized over each point. By assigning to each core in every streaming multiprocessor (SM) a point in the point cloud it is possible to speed up the application considerably.\\ 
+Constants that are used frequently by kernels are placed in constant memory so that they can be quickly broadcasted to all cores on the device. In particular, we declare three variables that are very frequently used as constant variable, and during the memory allocation phase they are set to their values with cudaMemcpyToSymbol.
+\begin{lstlisting}
+    __constant__ int samples_d;
+    __constant__ int K_d;
+    __constant__ int lines_d;
+    ...
+    CHECK_CUDA_CALL( cudaMemcpyToSymbol(samples_d, &samples, sizeof(int)) );
+    CHECK_CUDA_CALL( cudaMemcpyToSymbol(K_d, &K, sizeof(int)) );
+    CHECK_CUDA_CALL( cudaMemcpyToSymbol(lines_d, &lines, sizeof(int)) );
+\end{lstlisting}
+Similarly to what we did with MPI+OpenMP version, we still have to compute the euclidean distance of all points from all centroids at every iteration of the algorithm. To avoid high latency issues that come from communicating with global memory, because each core computing values for a single point would have to request from global memory every centroid, we place in shared memory of every SM the entire array containing the centroids. In order to do this, we must address two problems:
+\begin{enumerate}
+    \item We do not know a priori the size of the centroids array, since both the dimensionality and the number of centroids are known only at runtime
+    \item We have a limited amount of shared memory in each SM
+\end{enumerate}
+On Nvidia devices with a 7.5 compute capability like the ones that are available on sapienza's cluster, there is a unified data cache of 96Kb, and a part of it can be reserved to be allocated as shared memory (32Kb or 64Kb). The programmer must specify the percentage of total shared memory capability he wants to use for each kernel that needs shared memory usage. To do this, we must use cudaFuncSetAttribute(), passing to it as arguments the kernel, what attribute we wish to set (in our case shared memory carveout), and the percentage of shared memory we wish to allocate.
+\begin{lstlisting}
+    int carveout = 100;
+    ...
+    CHECK_CUDA_CALL( cudaFuncSetAttribute(firstStepGPU,
+    cudaFuncAttributePreferredSharedMemoryCarveout, carveout) );
+\end{lstlisting}
+Since the centroids array can be arbitrarily big, and the dimensionality of points can go up to 100 in our test cases, we set the carveout to 100, thus reserving the whole 64K shared memory space, in order to be sure that we can fit at most 16384 4 byte floating point numbers in it (which should be enough for any centroids array). It is important to note that this must be done only for those kernels that require shared memory. \\ 
+Another issue with shared memory is dynamic allocation, because we can't statically allocate shared memory in a kernel like so:
+\begin{lstlisting}
+    __shared__ float sharedCentroids[K_d*samples_d];
+\end{lstlisting}
+This allocation would result in a compilation error unless \textbf{K\_d} and \textbf{samples\_d} are compile time constants, which they are not. To fix this problem, we must dinamically allocate shared memory by declaring an unspecified size array, using the \textbf{extern} keyword, and then passing the size of the array as a parameter of the kernel call:
+\begin{lstlisting}
+    KERNEL CODE
+    extern __shared__ float sharedCentroids[];
+    ...
+    DEVICE CODE
+    firstStepGPU<<<dimGrid, dimBlock, csize>>>(...kernel arguments...);
+\end{lstlisting}
+Computing the euclidean distance is done through a \textbf{\_\_device\_\_} version of the provided \textbf{euclideanDistance} function, called \textbf{euclideanDistanceGPU}. The implementation is virtually identical, with the exception that the dimensionality of the points must not be passed as an argument to the function because it's a broadcasted constant from constant memory.
+\begin{lstlisting}
+
+   
+__device__
+float euclideanDistanceGPU(float* point1 /* in  */,   /* Point 1 */
+                           float* point2 /* in  */)   /* Point 2 */
+{
+	float dist = 0.0;
+	for (int i = 0; i < samples_d; i++)
+	{
+		dist += (point1[i] - point2[i]) * (point1[i] - point2[i]);
+	}
+	dist = sqrtf(dist);
+	return (dist);
+}
+\end{lstlisting}
+After all the logic for parallelization is set up, the individual code each thread executes is very similar to the sequential version. The blocks are organized as a one dimensional of size 64, and the block grid is also one dimensional of size 72. The code calls four kernels:
+\begin{enumerate}
+    \item \textbf{fistStepGPU}: It computes the distance of each point from all the centroids, and saves in classMap[p] the closest centroid to point p.
+    \item \textbf{recalculateCentroidsStep1GPU}: It computes the values needed for the calculation fo the new centroids. After the execution, auxCentroids will have stored the (not normalized) sum of all points that belong to each class, and pointsPerClass will contain the count of all points belonging to each class.
+    \item \textbf{recalculateCentroidsStep2GPU}: It divides the sum of the values of all the points belonging to class k by the number of points belonging to class k.
+    \item \textbf{recalculateCentroidsStep3GPU}: Checks whether the distance between the old centroids and the new ones is below the given threshold
+\end{enumerate}
+Communication with the device is done through two \textbf{cudaMemcpy} function calls at the end of the computation for each iteration, copying the number of changes and the maximum movement of the new centroids.
+\section*{Performance}
+\subsection*{MPI+OpenMP}
+Performance was evaluated with several metrics; Since this implementation is a combination of MPI and OpenMP, it was necessary to establish what combination of MPI processes and OpenMP threads was best over different input files. The tests where run on a 64 logical cores CPU, and multiple runs where performed on all configurations to capture the average runtime. For some metrics, like strong scaling and weak scaling, it was necessary to generate additional point clouds, not included in the test\_files. These point clouds where randomly generated by analyzing the biggest test file available (100k points of 100 dimensions), identifying the minimum and maximum value over all dimensions of all points, and picking from a uniform distribution in that range. The files generated have 200k, 400k, and 800k points. \\
+Below is a chart displaying the average runtimes over the given test files with an increasing number of MPI processes. The remaining threads are created by OpenMP(i.e. for n MPI processes, each process spawns $64/n$ OpenMP threads).\\
+\includegraphics[scale=0.40]{png/Average-runtimes-cropped.png}
+\\
+This plot shows that small files run more quickly when there is a small number (2-4) of MPI processes, and the rest of the parallelization is done through OpenMP. This suggest that below a certain size threshold most of the runtime is influenced by communication overhead between MPI processes, which tends to increase when we increase the number of MPI processes, and OpenMP overhead.\\
+This is further confirmed by the values of the biggest file, which have a parabolic behavior and finds a minimum with 8 MPI processes, where it's really close to the runtimes of other files.
 \end{document}

@@ -1,18 +1,40 @@
-path = "strongScaling2MPI/100D2/"
-data100D2 = {"2":[], "4":[], "8":[], "16":[], "32":[], "64":[]}
+path = "strongScaling/800k/"
+data800k = {"8":[], "16":[], "32":[], "64":[]}
 for i in range(1,11):
-    for k in [2, 4, 8, 16, 32, 64]:
+    for k in [8, 16, 32, 64]:
       try:
         with open(f"{path}{i}-{k}.log", "r") as f:
             a = f.read().split("\n")
             for line in a:
                 if "Computation: " in line:
                     time = float(line.split()[1])
-                    data100D2[str(k)].append(time)
+                    data800k[str(k)].append(time)
       except:
         continue
-for key in data100D2:
-  if (len(data100D2[key]) > 0):
-    data100D2[key] = sum(data100D2[key]) / len(data100D2[key])
+for key in data800k:
+  if (len(data800k[key]) > 0):
+    data800k[key] = sum(data800k[key]) / len(data800k[key])
   else:
     continue
+
+path = "weakScaling/"
+data = {"8":[], "16":[], "32":[], "64":[]}
+folders = ["100k/", "200k/", "400k/", "800k/"]
+for idx in range(len(folders)):
+    for i in range(1,11):
+        try:
+            print(f"{path}{folders[idx]}{i}.log")
+            with open(f"{path}{folders[idx]}{i}.log", "r") as f:
+                a = f.read().split("\n")
+                for line in a:
+                    if "Computation: " in line:
+                        time = float(line.split()[1])
+                        data[list(data.keys())[idx]].append(time)
+        except:
+            print("Something happened...")
+for idx in range(len(folders)):
+    if (len(data[list(data.keys())[idx]]) > 0):
+        data[list(data.keys())[idx]] = sum(data[list(data.keys())[idx]]) / len(data[list(data.keys())[idx]])
+    else:
+        print(f"{path}{folders[idx]} has some issues")
+

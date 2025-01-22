@@ -13,3 +13,5 @@ KMEANS_mpiompv2
 MPIOpenMPOut
 strongScaling
 strongScaling2MPI
+test_files/
+weakScaling

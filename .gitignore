@@ -10,3 +10,6 @@ cudaOut/
 mySequentialOut
 sequentialOut/
 KMEANS_mpiompv2
+MPIOpenMPOut
+strongScaling
+strongScaling2MPI

@@ -156,7 +156,7 @@ int main(int argc, char* argv[])
 	initCentroids(data, centroids, centroidPos, samples, K);
 
 	char *outputMsg = (char *)calloc(10000,sizeof(char));
-	char line[100];
+	char line[1024];
 
 	int j;
 	int _class;
@@ -219,7 +219,8 @@ int main(int argc, char* argv[])
 	CHECK_CUDA_CALL( cudaMemcpyToSymbol(lines_d, &lines, sizeof(int)) );
 
 	/* Set to 100% the amount of shared memory needed */
-	cudaFuncSetAttribute(firstStepGPU, cudaFuncAttributePreferredSharedMemoryCarveout, carveout);
+	CHECK_CUDA_CALL( cudaFuncSetAttribute(firstStepGPU, cudaFuncAttributePreferredSharedMemoryCarveout, carveout) );
+	CHECK_CUDA_CALL( cudaFuncSetAttribute(recalculateCentroidsStep2GPU, cudaFuncAttributePreferredSharedMemoryCarveout, carveout) );
 
 	/*
 	 *
@@ -241,24 +242,17 @@ int main(int argc, char* argv[])
 	printf("32 bit registers per SM: %d\n", prop.regsPerMultiprocessor);
 	printf("Shared memory per SM: %lu\n", prop.sharedMemPerMultiprocessor);
 	printf("csize: %d\n", csize);
+
 	//**************************************************
 	//START CLOCK***************************************
 	start = omp_get_wtime();
 	//**************************************************
-
-
-/*
- *
- * START HERE: DO NOT CHANGE THE CODE ABOVE THIS POINT
- *
- */
-
 	/* We are using a 1 dimensional block and grid size, to maximize occupancy */
 	dim3 dimBlock(BLOCK_DIMX);
 	dim3 dimGrid(gridsize);
 	do
 	{
-		it++; // Iteration counter
+		it++;
 		/*
 		 *  changes_d: 		  Total number of points that change centroid in this iteration.
 		 *  maxDist_d: 		  Will contain the maximum distance between the old and the new centroids.
@@ -445,7 +439,7 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 /*
  * This kernel computes the values needed for the calculation of the new centroids. After the
  * execution, auxCentroids will have stored the (not normalized) sum of all points that belong
- * to each class, and pointPerClass will contain the count of all points belonging to each class.
+ * to each class, and pointsPerClass will contain the count of all points belonging to each class.
  */
 __global__
 void recalculateCentroidsStep1GPU(float* points,	   /* in */	 /* array of points */
@@ -518,7 +512,6 @@ void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */     /* new cent
 	}
 	__syncthreads(); /* !!!!!!! ATTENTION: Do NOT remove this barrier !!!!!!! */
 
-	/* ATTENTION: This part could be made quicker... */
 	if (id < K_d)
 	{
 		_class = sharedPointsPerClass[id];
@@ -551,7 +544,6 @@ void recalculateCentroidsStep3GPU(float* maxDist, 		/* out */  /* precision in c
 	{
 		dist = euclideanDistanceGPU(&centroids[id*samples_d], &auxCentroids[id*samples_d]);
 
-		/* BUG: Race condition here in the update of maxDist... how to fix this? */
 		if (dist > *maxDist)
 		{
 			*maxDist = dist;

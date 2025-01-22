@@ -26,7 +26,7 @@
 
 #define MAXLINE 2000
 #define MAXCAD 200
-#define NLOGIC_CORES 8 /*
+#define NLOGIC_CORES 64 /*
 						* ATTENTION: set this to the number of logic cores of your system. To view this number, run
 						* lscpu | grep -E "^Thread|^Core|^Socket|^CPU\("
 						*/
@@ -68,7 +68,7 @@ int main(int argc, char* argv[])
 	*          algorithm stops.
 	* argv[6]: Output file. Class assigned to each point of the input file.
 	* */
-	if(argc !=  7)
+	if((argc !=  7) && !(argc == 8))
 	{
 		fprintf(stderr,"EXECUTION ERROR K-MEANS: Parameters are not correct.\n");
 		fprintf(stderr,"./KMEANS [Input Filename] [Number of clusters] [Number of iterations] [Number of changes] [Threshold] [Output data file]\n");
@@ -162,6 +162,7 @@ int main(int argc, char* argv[])
 	 *
 	 */
 	int rank, comm_sz;
+    int nthreads;
 	int root = 0;
 
 	/* Initialize MPI */
@@ -182,7 +183,14 @@ int main(int argc, char* argv[])
 
 	/* Set the number of threads that are spawned by each MPI thread. ATTENTION: NLOGIC_CORES is a compile time constant and
 	 * must be changed based on what system this program is compiled on! */
-	int nthreads = NLOGIC_CORES / comm_sz;
+    if (argc == 8)
+    {
+        int nlogic_cores = atoi(argv[7]);
+        nthreads = nlogic_cores / comm_sz;
+    } else
+    {
+        nthreads = NLOGIC_CORES / comm_sz;
+    }
 	omp_set_num_threads(nthreads);
 
     int local_sz = lines / comm_sz;

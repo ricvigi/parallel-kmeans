@@ -171,6 +171,7 @@ int main(int argc, char* argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &comm_sz);
 	const MPI_Comm COMM = MPI_COMM_WORLD;
 
+	/* This check is needed */
 	if ((lines % comm_sz) != 0)
 	{
 		if (rank == 0)
@@ -182,7 +183,8 @@ int main(int argc, char* argv[])
 	}
 
 	/* Set the number of threads that are spawned by each MPI thread. ATTENTION: NLOGIC_CORES is a compile time constant and
-	 * must be changed based on what system this program is compiled on! */
+	 * must be changed based on what system this program is compiled on!. If you wish to see how the program behaves with a
+	 * different number of threads, you must include the number as the last argument of the program */
     if (argc == 8)
     {
         int nlogic_cores = atoi(argv[7]);
@@ -200,8 +202,8 @@ int main(int argc, char* argv[])
 	float local_data[local_sz*samples];
 	int* local_classMap = (int*)calloc(local_sz,sizeof(int));
 
-	/* Scatter data array */
-	if (rank == 0)
+	/* Scatter data array. NOTE: rank 0 is root, but any rank can scatter this array */
+	if (rank == root)
 	{
 		MPI_Scatter(data, local_sz*samples, MPI_FLOAT, local_data, local_sz*samples, MPI_FLOAT, root, COMM);
 
@@ -234,7 +236,7 @@ int main(int argc, char* argv[])
 				/* compute the distance of point i from centroid k */
 				dist=euclideanDistance(&local_data[i*samples], &centroids[k*samples], samples);
 
-				/* if the dist is smaller than the current minimum distance, update minDist and set _class to current k */
+				/* if dist is smaller than the current minimum distance, update minDist and set _class to current k */
 				if(dist < minDist)
 				{
 					minDist=dist;
@@ -257,6 +259,9 @@ int main(int argc, char* argv[])
 		zeroFloatMatriz(auxCentroids,K,samples);
 #		pragma omp parallel
 		{
+			/* We allocate these buffers to avoid race conditions on auxCentroids. We do this because there is no way to know
+			 * which part of auxCentroids a thread will work on at a given moment. This setup allows us to at least
+			 * parallelize local accumulation of values  */
 			int* local_pointsPerClass = (int*) calloc(K,sizeof(int));
 			float* local_auxCentroids = (float*) calloc(K*samples,sizeof(float));
 
@@ -272,6 +277,10 @@ int main(int argc, char* argv[])
 					local_auxCentroids[(_class-1)*samples+j] += local_data[i*samples+j];
 				}
 			}
+			/* This critical section is necessary for the same reason as above. NOTE: Running this loop sequentially does not
+			 * have a big impact on performance because K*samples is generally MUCH lower than local_sz*samples. The heavy
+			 * part of the computation is done above in parallel, so that we are free to execute this part sequentially and
+			 * avoid race conditions over auxCentroids */
 #			pragma omp critical
 			{
 				for (int k = 0; k < K; k++)
@@ -297,8 +306,9 @@ int main(int argc, char* argv[])
 #		pragma omp parallel for shared(pointsPerClass, auxCentroids) private(k, j)
 		for(k = 0; k < K; k++)
 		{
-			/* second step of calculating the mean for each class. Divide by the number
-		     * of elements of each class */
+			/* second step of calculating the mean for each class. Divide by the number of elements of each class. NOTE: We
+			 * are free to parallelize this section because we are able to know a priori on what part of auxCentroids each
+			 * thread will work on */
 			for(j = 0; j < samples; j++)
 			{
 				auxCentroids[k*samples+j] /= pointsPerClass[k];
@@ -320,6 +330,8 @@ int main(int argc, char* argv[])
 		}
 
 		memcpy(centroids, auxCentroids, (K*samples*sizeof(float)));
+		/* NOTE: This Allreduce was a safety measure against inconsistencies, but it's really not needed if we are sure that
+		 * both the centroids and auxCentroids array are identical for all processes */
 		// MPI_Allreduce(MPI_IN_PLACE, &maxDist, 1, MPI_FLOAT, MPI_MAX, COMM);
 
 		sprintf(line,"\n[%d] Cluster changes: %d\tMax. centroid distance: %f", it, changes, maxDist);
@@ -330,11 +342,14 @@ int main(int argc, char* argv[])
 
 
 	end = omp_get_wtime();
+	/* Let the root process gather each local_classMap */
 	MPI_Gather(local_classMap, local_sz, MPI_INT, classMap, local_sz, MPI_INT, root, COMM);
 
 	if (rank == 0)
 	{
 
+	/* To have a correct computing time, take the minimum out of all the starting times and the maximum out of all the ending
+	 * times */
 	MPI_Reduce(MPI_IN_PLACE, &start, 1, MPI_DOUBLE, MPI_MIN, root, COMM);
 	MPI_Reduce(MPI_IN_PLACE, &end, 1, MPI_DOUBLE, MPI_MAX, root, COMM);
 	// Output and termination conditions
@@ -379,9 +394,6 @@ int main(int argc, char* argv[])
 	free(auxCentroids);
 
 	free(local_classMap);
-	// free(local_pointsPerClass);
-	// free(local_auxCentroids);
-
 
 	MPI_Finalize();
 	//END CLOCK*****************************************
@@ -405,9 +417,6 @@ int main(int argc, char* argv[])
 	free(auxCentroids);
 
 	free(local_classMap);
-	// free(local_pointsPerClass);
-	// free(local_auxCentroids);
-
 	MPI_Finalize();
 	}
 	return EXIT_SUCCESS;

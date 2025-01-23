@@ -38,3 +38,26 @@ for idx in range(len(folders)):
     else:
         print(f"{path}{folders[idx]} has some issues")
 
+path = "sequentialOut/"
+folders = ["2D", "2D2", "10D", "20D", "100D", "100k", "200k", "400k", "800k", "1600k"]
+data = {x:[] for x in folders}
+for idx in range(len(folders)):
+    for i in range(1,21):
+        try:
+            with open(f"{path}{folders[idx]}/{i}.log") as f:
+                a = f.read().split("\n")
+                for line in a:
+                    if "Computation: " in line:
+                        time = float(line.split()[1])
+                        data[folders[idx]].append(time)
+        except:
+            print("ERROR")
+for idx in range(len(folders)):
+    if (len(data[folders[idx]]) > 0):
+        data[folders[idx]] = sum(data[folders[idx]]) / len(data[folders[idx]])
+
+
+
+
+
+

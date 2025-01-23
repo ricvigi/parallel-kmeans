@@ -29,11 +29,6 @@
 #define MAXCAD 200
 
 #define BLOCK_DIMX 64
-#define BLOCK_DIMY 1
-#define BLOCK_DIMZ 1
-#define GRID_DIMX 72
-#define GRID_DIMY 0
-#define GRID_DIMZ 0
 
 //Macros
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
@@ -197,7 +192,6 @@ int main(int argc, char* argv[])
 	int csize = K*samples*sizeof(float);
 	int cmapsize = lines*sizeof(int);
 	int ppcsize = K*sizeof(int);
-	const int gridsize = (int) ceil((float)lines/BLOCK_DIMX);
 	float* points_d, *centroids_d, *auxCentroids_d, *maxDist_d;
 	int* changes_d, *classMap_d, *pointsPerClass_d;
 
@@ -249,7 +243,7 @@ int main(int argc, char* argv[])
 	//**************************************************
 	/* We are using a 1 dimensional block and grid size, to maximize occupancy */
 	dim3 dimBlock(BLOCK_DIMX);
-	dim3 dimGrid(gridsize);
+	dim3 dimGrid(72);
 	do
 	{
 		it++;
@@ -392,8 +386,7 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 	int _class = 1;
 	float res;
 
-	/* Shared memory allocation. NOTE: It's much quicker (and better) if K*samples < 64. This should always
-	 * be possible, except in the case where we use 100 dim points. */
+	/* Shared memory allocation */
 	if ((K_d * samples_d) > BLOCK_DIMX)
 	{
 		centers[blockId] = center[blockId];
@@ -431,7 +424,7 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 			/* variable changes must be incremented atomically */
 			atomicAdd(changes, 1);
 		}
-		/* NOTE: it's important to update this every time, otherwise we might run into nasty bugs */
+		/* NOTE: Always update this variable */
 		classMap[id] = _class;
 	}
 }
@@ -463,8 +456,6 @@ void recalculateCentroidsStep1GPU(float* points,	   /* in */	 /* array of points
 		atomicAdd(&pointsPerClass[_class - 1], 1);
 		for (int j = 0; j < samples_d; j++)
 		{
-			/* NOTE: There should NOT be an issue with floating point rounding here, since
-			 * there shouldn't be values that are too small. */
 			atomicAdd(&auxCentroids[(_class - 1)*samples_d + j], points[id*samples_d+j]);
 		}
 	}
@@ -491,8 +482,6 @@ void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */     /* new cent
 	extern __shared__ int sharedPointsPerClass[];
 
 	/* Copy pointsPerClass into shared memory */
-	/* ATTENTION: It's better/quicker (for this kernel) to use at most 64 centroids, although it would be
-	 * even better to always have K_d*samples_d <= 64 */
 	if (K_d <= BLOCK_DIMX)
 	{
 		if (blockId < K_d)
@@ -539,7 +528,6 @@ void recalculateCentroidsStep3GPU(float* maxDist, 		/* out */  /* precision in c
 			 + (blockIdx.z * blockDim.z + threadIdx.z) * gridDim.x * blockDim.x * gridDim.y * blockDim.y;
 	float dist;
 
-	/* ATTENTION: We can speed this up. */
 	if (id < K_d)
 	{
 		dist = euclideanDistanceGPU(&centroids[id*samples_d], &auxCentroids[id*samples_d]);

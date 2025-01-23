@@ -21,3 +21,4 @@ KMEANS_cudav2.cu
 KMEANS.c
 
 *.zip
+*.tex

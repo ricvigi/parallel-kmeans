@@ -16,3 +16,7 @@ strongScaling2MPI
 test_files/
 weakScaling
 moreCudaOut/
+KMEANS_mpiompv2.c
+KMEANS_cudav2.cu
+KMEANS.c
+

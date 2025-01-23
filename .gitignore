@@ -20,3 +20,4 @@ KMEANS_mpiompv2.c
 KMEANS_cudav2.cu
 KMEANS.c
 
+*.zip

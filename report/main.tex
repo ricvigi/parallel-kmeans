@@ -11,6 +11,8 @@
  \usepackage{titling}
  \usepackage{listings}
  \usepackage{enumerate}
+ \usepackage{subcaption}
+ \usepackage{float}
  \title{Parallelization of K-means clustering algorithm through MPI+OpenMP and CUDA
 }
 \author{Riccardo Inverardi Galli}
@@ -97,8 +99,8 @@ The first implementation leverages the parallelization opportunities presented b
     \item Cardinality $|P|$ of the point cloud.
     \item Dimensionality of the points
 \end{enumerate}
-The most straight-forward approach was to split the data cloud between a fixed number of MPI processes, and then parallelize the rest of the computation using OpenMP pragmas. This approach works very well due to the nature of the K-means algorithm; Since the heaviest computation at each iteration is computing the Euclidean distance of all points from each centroid (with $m$ points and $K$ centroids, we must perform $mK$ distance calculations), scattering the points through $n$ MPI processes reduces the theoretical computation time by a factor $n$ (there are no dependencies between computing distances of two points $i$ and $j$, $i\neq j$). This works because there is no redundant computation between processes, and each process $i$ computes it's own part of $$[p_l, p_{l+1}, \ldots, p_j]_{1\leq l \leq j \leq m} \circ([c_{l_1},\ldots,c_{l_k}])$$
-where $p_l\in P$, $c_l \in C$, and $\circ$ denotes the application of the Euclidean distance algorithm for each $p$.\\ To further increase parallelization OpenMP is used to parallelize for loops. This setup requires some calculations on the number of threads OpenMP can use. We want to have 
+The most straight-forward approach was to split the data cloud between a fixed number of MPI processes, and then parallelize the rest of the computation using OpenMP pragmas. This approach works very well due to the nature of the K-means algorithm; Since the heaviest computation at each iteration is computing the Euclidean distance of all points from each centroid (with $m$ points and $K$ centroids, we must perform $mK$ distance calculations), scattering the points through $n$ MPI processes reduces the theoretical computation time by a factor $n$ (there are no dependencies between computing distances of two points $i$ and $j$, $i\neq j$). This works because there is no redundant computation between processes, and each process $i$ computes it's own part of $$[p_l, p_{l+1}, \ldots, p_j]_{1\leq l \leq j \leq m} \circ([c_{1},\ldots,c_{k}])$$
+where $p_l\in P$, $c_j \in C$, and $\circ$ denotes the application of the Euclidean distance algorithm for each $p$.\\ To further increase parallelization OpenMP is used to parallelize for loops. This setup requires some calculations on the number of threads OpenMP can use. We want to have 
 \begin{lstlisting}
     MPI_proc + OMP_threads = CPU_cores
 \end{lstlisting}
@@ -107,11 +109,11 @@ This number tends to be different on each system, thus we set the number of Open
     int nthreads=NLOGIC_CORES / comm_sz;
     omp_set_num_threads(nthreads);
 \end{lstlisting}
-where NLOGIC\_CORES is the total number of logic cores of the system and is a compile time constant, and comm\_sz is a runtime variable containing the size of MPI's communicator (the number of processes we specify with the -n flag of mpirun). This setup ensures that we are always using the full capacity of the CPU. To know the value of NLOGIC\_CORES, we can run the following command on UNIX systems:
+where \textbf{NLOGIC\_CORES} is the total number of logic cores of the system and is a compile time constant, and \textbf{comm\_sz} is a runtime variable containing the size of MPI's communicator (the number of processes we specify with the -n flag of mpirun). This setup ensures that we are always using the full capacity of the CPU. To know the value of \textbf{NLOGIC\_CORES}, we can run the following command on UNIX systems:
 \begin{lstlisting}
     lscpu | grep -E "^Thread|^Core|^Socket|^CPU\("
 \end{lstlisting}
-By default, MPI creates a copy of all buffers for each process (SPMD), thus we only need to allocate two additional arrays, one to store the local part of the point cloud in each process, and another to store the local class map for the local point could. A class map is an array the indicates to what centroid $k$ a point $i$ belongs. \\The program contains three parallel sections that do most of the computation for one iteration, while the last loop is performed sequentially for each MPI process, since the number of operations is too small to justify further parallelization overhead.\\ To distribute the point cloud between MPI processes, we first allocate this buffer:
+By default, MPI creates a copy of all buffers for each process (SPMD), thus we only need to allocate two additional arrays, one to store the local part of the point cloud in each process, and another to store the local class map for the local point could (although during each iteration we allocate two additional utility arrays). A class map is an array the indicates to what centroid $k$ a point $i$ belongs. \\The program contains three parallel sections that do most of the computation for one iteration, while the last loop is performed sequentially for each MPI process, since the number of operations is too small to justify further parallelization overhead.\\ To distribute the point cloud between MPI processes, we first allocate this buffer:
 \begin{lstlisting}
     int local_sz = lines / comm_sz;
 
@@ -224,8 +226,8 @@ After this step is performed, the computation for one iteration is finished. The
 \end{lstlisting}
 \section*{CUDA}
 CUDA is Nvidia's proprietary parallel computing API which allows programmers to access a Nvidia GPU instruction set through the C++ programming language. GPU architectures are specifically made to leverage parallelism and high bandwidth communication inside each device, through a very high number of cores and several levels of in-device memory.\\
-To parallelize the K-means clustering algorithm on a GPU, one has to completely rethink the logic of the code. Since the main factor that influences runtime of the application is the number of points the algorithm has to iterate on, it was natural to think that the algorithm should be parallelized over each point. By assigning to each core in every streaming multiprocessor (SM) a point in the point cloud it is possible to speed up the application considerably.\\ 
-Constants that are used frequently by kernels are placed in constant memory so that they can be quickly broadcasted to all cores on the device. In particular, we declare three variables that are very frequently used as constant variable, and during the memory allocation phase they are set to their values with cudaMemcpyToSymbol.
+To parallelize the K-means clustering algorithm on a GPU, since the main factor that influences runtime of the application is the number of points the algorithm has to iterate on, it was natural to think that the algorithm should be parallelized over each point. By assigning to each core in every streaming multiprocessor (SM) a point in the point cloud it is possible to speed up the application considerably.\\ 
+Constants that are used frequently by kernels are placed in constant memory so that they can be quickly broadcasted to all cores on the device. In particular, we declare three variables that are very frequently used as constant variables, and during the memory allocation phase they are set to their values with cudaMemcpyToSymbol.
 \begin{lstlisting}
     __constant__ int samples_d;
     __constant__ int K_d;
@@ -248,7 +250,7 @@ On Nvidia devices with a 7.5 compute capability like the ones that are available
     cudaFuncAttributePreferredSharedMemoryCarveout, carveout) );
 \end{lstlisting}
 Since the centroids array can be arbitrarily big, and the dimensionality of points can go up to 100 in our test cases, we set the carveout to 100, thus reserving the whole 64K shared memory space, in order to be sure that we can fit at most 16384 4 byte floating point numbers in it (which should be enough for any centroids array). It is important to note that this must be done only for those kernels that require shared memory. \\ 
-Another issue with shared memory is dynamic allocation, because we can't statically allocate shared memory in a kernel like so:
+Another issue with shared memory is dynamic allocation, since we are not able to statically allocate shared memory in a kernel like so:
 \begin{lstlisting}
     __shared__ float sharedCentroids[K_d*samples_d];
 \end{lstlisting}
@@ -284,13 +286,73 @@ After all the logic for parallelization is set up, the individual code each thre
     \item \textbf{recalculateCentroidsStep2GPU}: It divides the sum of the values of all the points belonging to class k by the number of points belonging to class k.
     \item \textbf{recalculateCentroidsStep3GPU}: Checks whether the distance between the old centroids and the new ones is below the given threshold
 \end{enumerate}
-Communication with the device is done through two \textbf{cudaMemcpy} function calls at the end of the computation for each iteration, copying the number of changes and the maximum movement of the new centroids.
+Communication with the device is done through two \textbf{cudaMemcpy} function calls at the end of the computation for each iteration, copying the number of changes and the maximum movement of the new centroids.\\
+Although this CUDA implementation works well, more work could be done on it to greatly improve speed. One approach could be to reduce the number of kernels in order to minimize overhead, think of more efficient ways to allocate shared memory, and try to leverage the GPU ability to run concurrent kernels, although the latter would require to completely revisit the logic of the program, that at the current moment has dependecy issues between the kernels. 
 \section*{Performance}
-\subsection*{MPI+OpenMP}
-Performance was evaluated with several metrics; Since this implementation is a combination of MPI and OpenMP, it was necessary to establish what combination of MPI processes and OpenMP threads was best over different input files. The tests where run on a 64 logical cores CPU, and multiple runs where performed on all configurations to capture the average runtime. For some metrics, like strong scaling and weak scaling, it was necessary to generate additional point clouds, not included in the test\_files. These point clouds where randomly generated by analyzing the biggest test file available (100k points of 100 dimensions), identifying the minimum and maximum value over all dimensions of all points, and picking from a uniform distribution in that range. The files generated have 200k, 400k, and 800k points. \\
-Below is a chart displaying the average runtimes over the given test files with an increasing number of MPI processes. The remaining threads are created by OpenMP(i.e. for n MPI processes, each process spawns $64/n$ OpenMP threads).\\
-\includegraphics[scale=0.40]{png/Average-runtimes-cropped.png}
-\\
-This plot shows that small files run more quickly when there is a small number (2-4) of MPI processes, and the rest of the parallelization is done through OpenMP. This suggest that below a certain size threshold most of the runtime is influenced by communication overhead between MPI processes, which tends to increase when we increase the number of MPI processes, and OpenMP overhead.\\
-This is further confirmed by the values of the biggest file, which have a parabolic behavior and finds a minimum with 8 MPI processes, where it's really close to the runtimes of other files.
+Performance was evaluated using several metrics. With the implementation that uses MPI in conjunction with OpenMP it was necessary to establish what combination of MPI processes and OpenMP threads was best over different input files. The tests where run on a 64 logical cores CPU, and multiple runs where performed on all configurations to capture the average runtime. For some metrics, like strong scaling and weak scaling, it was necessary to generate additional point clouds, not included in the test files. These point clouds where randomly generated by analyzing the biggest test file available (100k points of 100 dimensions), identifying the minimum and maximum value over all dimensions of all points, and picking from a uniform distribution in that range. The files generated have 200k, 400k,800k and 1.6M points, although it was not possible to use the biggest file in the MPI+OpenMP, possible due to MPI memory requirements. \\
+Figure 1(a) shows average runtimes over the given test files with an increasing number of MPI processes. The remaining threads are created by OpenMP (i.e. for $n$ MPI processes, each process spawns $64/n$ OpenMP threads).
+This plot shows that small files run more quickly when there is a small number (2-4) of MPI processes, and the rest of the parallelization is done through OpenMP. This suggest that below a certain size threshold most of the runtime is influenced by communication overhead between MPI processes, which tends to increase when we increase the number of processes, and OpenMP overhead.\\
+This is further confirmed, although by different means, by Figure 1(b), which shows how for small files, while keeping the numbers of MPI processes fixed to two, and increasing the number of total threads created by the program through OpenMP, runtimes tend to slowly grow after a sharp decrease, indicating that the program does not display weak or strong scaling properties for small files.\\
+For a dataset large enough (100D2, 100k points of $D=100$), we see in Figure 1(a) that runtime displays a parabolic behavior when increasing MPI parallelization, reaching a minimum at 8 MPI processes. This suggest that this particular setup is the most optimal for files large enough, and again confirms that communication overhead plays a crucial role in performance. Figure 1(d) shows strong scaling behavior when we give the program a large enough data set, with the number of MPI processes fixed to 8. Figure 1(e) shows similar behavior on larger datasets, but the speedup tends to decrease, suggesting that larger datasets might benefit from a different configuration.\\
+CUDA version shows significant speedups only on very large cloud points, where it is faster than the parallel MPI+OpenMP version by a factor of 2 (1.6 vs 0.75 on average), and orders of magnitude faster than the sequential version (around 1.3 seconds of average vs 60 seconds on the largest dataset).
+\section*{Conclusions}
+This work shows the great opportunities presented by parallelizing programs that already work well sequentially.\\
+If we wish to parallelize on a CPU, with minimum effort we can obtain tremendous speedups over large datasets, without needing to think of a different implementation of the problem. The combination of MPI and OpenMP showed great results over problems that do not have dependencies over the computation on the dataset. If it's possible to split the dataset and work independently on subsets of it, and if this approach does not increase the number of operations needed, we can have very good results, very quickly.\\
+Although CPU parallelization works very well, using a GPU architecture can greatly boost performance, with the downside of greater complexity when writing programs, cost issues with respect to hardware, and harder debugging environments. Despite the challenges it poses, working with a GPU (or multiple GPUs) is by far the best method if one seeks performance and does not care much about cost, and should be an area of great interest for a programmer that is approaching parallel programming.
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{png/Average-runtimes.png}
+        \caption{Average runtimes with different MPI configurations}
+        \label{fig:image1}
+    \end{subfigure}
+    \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{png/2MPIprocesses-smallTestFiles.png}
+        \caption{Average runtimes with increasing OpenMP threads and two MPI processes}
+        \label{fig:image2}
+    \end{subfigure}
+    \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{png/8MPIprocesses-smallTestFiles.png}
+        \caption{Average runtimes with increasing OpenMP threads and eight MPI processes}
+        \label{fig:image3}
+    \end{subfigure}
+    \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{png/8MPIprocesses-bigTestFile.png}
+        \caption{Average runtimes with increasing OpenMP threads and eight MPI processes}
+        \label{fig:image4}
+    \end{subfigure}
+    \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{png/StrongScaling.png}
+        \caption{Same as (d), bigger datasets}
+        \label{fig:image5}
+    \end{subfigure}
+    \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{cudaRuntimeDistribution-1.png}
+        \caption{CUDA runtimes on provided datasets}
+        \label{fig:image6}
+    \end{subfigure}
+    \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{cudaRuntimeDistribution-2.png}
+        \caption{CUDA runtimes on generated datasets}
+        \label{fig:image7}
+    \end{subfigure}
+    %\caption{Overall caption for the images.}
+    \label{fig:bothimages}
+\end{figure}
+
+\clearpage
+\begin{figure}[H]
+    \centering
+     \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{sequentialRuntimeDistribution-1.png}
+        \caption{Sequential runtimes on provided datasets}
+        \label{fig:image1}
+    \end{subfigure}
+     \begin{subfigure}{0.40\textwidth}
+        \includegraphics[width=\textwidth]{sequentialRuntimeDistribution-2.png}
+        \caption{Sequential runtimes on generated datasets}
+        \label{fig:image2}
+    \end{subfigure}
+\end{figure}
 \end{document}

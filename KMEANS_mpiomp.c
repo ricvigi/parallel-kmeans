@@ -26,7 +26,7 @@
 
 #define MAXLINE 2000
 #define MAXCAD 200
-#define NLOGIC_CORES 64 /*
+#define NLOGIC_CORES 8 /*
 						* ATTENTION: set this to the number of logic cores of your system. To view this number, run
 						* lscpu | grep -E "^Thread|^Core|^Socket|^CPU\("
 						*/
@@ -161,12 +161,13 @@ int main(int argc, char* argv[])
 	 * MPI + OMP
 	 *
 	 */
-	int rank, comm_sz;
+	int rank, comm_sz, provided;
     int nthreads;
 	int root = 0;
 
 	/* Initialize MPI */
-	MPI_Init(NULL, NULL);
+	// MPI_Init(NULL, NULL);
+	MPI_Init_thread(NULL, NULL, MPI_THREAD_FUNNELED, &provided);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_sz);
 	const MPI_Comm COMM = MPI_COMM_WORLD;
@@ -201,6 +202,10 @@ int main(int argc, char* argv[])
 	/* Thread local bufffers */
 	float local_data[local_sz*samples];
 	int* local_classMap = (int*)calloc(local_sz,sizeof(int));
+	// if (rank == root)
+	// {
+	// 	printf("nthreads = %d\n", nthreads);
+	// }
 
 	/* Scatter data array. NOTE: rank 0 is root, but any rank can scatter this array */
 	if (rank == root)
@@ -226,7 +231,7 @@ int main(int argc, char* argv[])
 	{
 		it++;
 		changes = 0;
-#		pragma omp parallel for shared(local_classMap, changes, auxCentroids) private(i, _class, minDist, k, dist)
+#		pragma omp parallel for default(none) shared(centroids, local_data, local_classMap, local_sz, samples, K	) private(i, _class, minDist, k, dist) reduction(+: changes)
 		for (i = 0; i < local_sz; i++) /* Iterate over each point */
 		{
 			_class = 1;
@@ -246,8 +251,6 @@ int main(int argc, char* argv[])
 			/* After the loop, _class will store the centroid closest to point i */
 			if(local_classMap[i] != _class)
 			{
-				/* ATTENTION: changes must be updated atomically */
-#				pragma omp atomic
 				changes++;
 			}
 			/* ATTENTION: always update local_classMap */
@@ -265,7 +268,7 @@ int main(int argc, char* argv[])
 			int* local_pointsPerClass = (int*) calloc(K,sizeof(int));
 			float* local_auxCentroids = (float*) calloc(K*samples,sizeof(float));
 
-#			pragma omp for private (_class, i, j)
+#			pragma omp for
 			for(int i = 0; i < local_sz; i++)
 			{
 				/* Get class of point i */
@@ -303,7 +306,7 @@ int main(int argc, char* argv[])
 		MPI_Allreduce(MPI_IN_PLACE, auxCentroids, K*samples, MPI_FLOAT, MPI_SUM, COMM);
 		MPI_Allreduce(MPI_IN_PLACE, &changes, 1, MPI_INT, MPI_SUM, COMM);
 
-#		pragma omp parallel for shared(pointsPerClass, auxCentroids) private(k, j)
+#		pragma omp parallel for
 		for(k = 0; k < K; k++)
 		{
 			/* second step of calculating the mean for each class. Divide by the number of elements of each class. NOTE: We

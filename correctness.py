@@ -9,7 +9,7 @@ with open("resultsCuda/test100D2.out", "r") as f:
     c = [x for x in c if x != ""]
 
 # variable b contains output of sequential version
-print(f"MPI + OpenMP version has the same output as given implementaion: {a == b}")
+print(f"MPI + OpenMP version has the same output as given implementation: {a == b}")
 if (a == c):
     print(f"CUDA version has the same output as given implementation: {a == c}")
 else:

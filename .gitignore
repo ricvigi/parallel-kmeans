@@ -2,7 +2,7 @@ KMEANS_seq
 cKMEANS_omp
 KMEANS_mpi
 KMEANS_cuda
-test*.out
+# test*.out
 KMEANS_mpiomp
 out/*
 myOut/
@@ -19,6 +19,7 @@ moreCudaOut/
 KMEANS_mpiompv2.c
 KMEANS_cudav2.cu
 KMEANS.c
-
 *.zip
 *.tex
+# resultsCuda
+resultsSequential

@@ -231,7 +231,11 @@ int main(int argc, char* argv[])
 	{
 		it++;
 		changes = 0;
-#		pragma omp parallel for default(none) shared(centroids, local_data, local_classMap, local_sz, samples, K	) private(i, _class, minDist, k, dist) reduction(+: changes)
+#		pragma omp parallel for default(none)\
+		shared(centroids, local_data, local_classMap,\
+		local_sz, samples, K)\
+		private(i, _class, minDist, k, dist)\
+		reduction(+: changes)
 		for (i = 0; i < local_sz; i++) /* Iterate over each point */
 		{
 			_class = 1;

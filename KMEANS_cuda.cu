@@ -227,8 +227,8 @@ int main(int argc, char* argv[])
 	fflush(stdout);
 
 	cudaDeviceProp prop;
-	cudaGetDevice(0);
-	cudaGetDeviceProperties(&prop, 0);
+	CHECK_CUDA_CALL( cudaGetDevice(0) );
+	CHECK_CUDA_CALL( cudaGetDeviceProperties(&prop, 0) );
 	printf("Max shared memory: %lu\n", prop.sharedMemPerBlock);
 	printf("Max threads per block: %d\n", prop.maxThreadsPerBlock);
 	printf("Max threads per SM: %d\n", prop.maxThreadsPerMultiProcessor);
@@ -357,7 +357,7 @@ int main(int argc, char* argv[])
 	printf("\n\nMemory deallocation: %f seconds\n", end - start);
 	fflush(stdout);
 	//***************************************************/
-	return 0;
+	return EXIT_SUCCESS;
 }
 
 

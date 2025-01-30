@@ -260,26 +260,16 @@ int main(int argc, char* argv[])
 		CHECK_CUDA_CALL( cudaMemset(auxCentroids_d, 0.0, csize) );
 
 		/* First kernel */
-		firstStepGPU<<<dimGrid, dimBlock, csize>>>(points_d,
-												   centroids_d,
-												   classMap_d,
-												   changes_d);
+		firstStepGPU<<<dimGrid, dimBlock, csize>>>(points_d, centroids_d, classMap_d, changes_d);
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
 		/* Second kernel */
-		recalculateCentroidsStep1GPU<<<dimGrid, dimBlock>>>(points_d,
-															classMap_d,
-															pointsPerClass_d,
-															auxCentroids_d);
+		recalculateCentroidsStep1GPU<<<dimGrid, dimBlock>>>(points_d, classMap_d, pointsPerClass_d, auxCentroids_d);
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
 
 		/* Third kernel */
-		recalculateCentroidsStep2GPU<<<dimGrid, dimBlock, csize>>>(auxCentroids_d,
-																   pointsPerClass_d,
-																   centroids_d,
-																   maxDist_d);
+		recalculateCentroidsStep2GPU<<<dimGrid, dimBlock, csize>>>(auxCentroids_d, pointsPerClass_d, centroids_d, maxDist_d);
 		CHECK_CUDA_CALL( cudaDeviceSynchronize() );
-
 
 		/* Fourth kernel */
 		recalculateCentroidsStep3GPU<<<dimGrid, dimBlock>>>(maxDist_d, centroids_d, auxCentroids_d);
@@ -374,10 +364,7 @@ void firstStepGPU(float* point   /* in */, 	   /* WHOLE ARRAY */
 				  int* changes	 /* out */)	   /* number of changes made */
 {
 	/* Global thread id */
-	int id = threadIdx.x
-			 + blockIdx.x * blockDim.x
-			 + ( blockIdx.y * blockDim.y + threadIdx.y ) * gridDim.x * blockDim.x
-			 + (blockIdx.z * blockDim.z + threadIdx.z) * gridDim.x * blockDim.x * gridDim.y * blockDim.y;
+	int id = threadIdx.x + blockIdx.x * blockDim.x + ( blockIdx.y * blockDim.y + threadIdx.y ) * gridDim.x * blockDim.x + (blockIdx.z * blockDim.z + threadIdx.z) * gridDim.x * blockDim.x * gridDim.y * blockDim.y;
 	/* id of a thread inside a block */
 	int blockId = threadIdx.x;
 
@@ -442,10 +429,7 @@ void recalculateCentroidsStep1GPU(float* points,	   /* in */	 /* array of points
 
 {
 	/* Global thread id */
-	int id = threadIdx.x
-			 + blockIdx.x * blockDim.x
-			 + ( blockIdx.y * blockDim.y + threadIdx.y ) * gridDim.x * blockDim.x
-			 + (blockIdx.z * blockDim.z + threadIdx.z) * gridDim.x * blockDim.x * gridDim.y * blockDim.y;
+	int id = threadIdx.x + blockIdx.x * blockDim.x + ( blockIdx.y * blockDim.y + threadIdx.y ) * gridDim.x * blockDim.x + (blockIdx.z * blockDim.z + threadIdx.z) * gridDim.x * blockDim.x * gridDim.y * blockDim.y;
 	int _class;
 	if (id < lines_d)
 	{
@@ -472,10 +456,7 @@ void recalculateCentroidsStep2GPU(float* auxCentroids, /* out */     /* new cent
 								  float* maxDist)      /* in/out */  /* maxDistance between old and new centroids */
 {
 	/* Global thread id */
-	int id = threadIdx.x
-			 + blockIdx.x * blockDim.x
-			 + ( blockIdx.y * blockDim.y + threadIdx.y ) * gridDim.x * blockDim.x
-			 + (blockIdx.z * blockDim.z + threadIdx.z) * gridDim.x * blockDim.x * gridDim.y * blockDim.y;
+	int id = threadIdx.x + blockIdx.x * blockDim.x + ( blockIdx.y * blockDim.y + threadIdx.y ) * gridDim.x * blockDim.x + (blockIdx.z * blockDim.z + threadIdx.z) * gridDim.x * blockDim.x * gridDim.y * blockDim.y;
 	/* id of a thread inside a block */
 	int blockId = threadIdx.x;
 	int _class;
